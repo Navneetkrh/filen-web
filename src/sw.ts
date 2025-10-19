@@ -1,296 +1,211 @@
-import FilenSDK, { type FileEncryptionVersion, ANONYMOUS_SDK_CONFIG } from "@filen/sdk"
-import mimeTypes from "mime-types"
-import fetchAdapter from "@vespaiach/axios-fetch-adapter"
-import axios from "axios"
+/// <reference lib="webworker" />
 
-declare let self: ServiceWorkerGlobalScope
+import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching'
+import { registerRoute } from 'workbox-routing'
+import { StaleWhileRevalidate, CacheFirst, NetworkFirst } from 'workbox-strategies'
+import { ExpirationPlugin } from 'workbox-expiration'
 
-const sdk = new FilenSDK(
-	{
-		...ANONYMOUS_SDK_CONFIG,
-		connectToSocket: false,
-		metadataCache: true
-	},
-	undefined,
-	axios.create({
-		adapter: fetchAdapter
-	})
+declare const self: ServiceWorkerGlobalScope
+
+// Precache all static assets
+precacheAndRoute(self.__WB_MANIFEST)
+
+// Clean up old caches
+cleanupOutdatedCaches()
+
+// Cache API responses
+registerRoute(
+  ({ url }) => url.pathname.startsWith('/api/'),
+  new NetworkFirst({
+    cacheName: 'api-cache',
+    plugins: [
+      new ExpirationPlugin({
+        maxEntries: 100,
+        maxAgeSeconds: 60 * 60 * 24, // 24 hours
+      }),
+    ],
+  })
 )
 
-const map = new Map()
+// Cache images
+registerRoute(
+  ({ request }) => request.destination === 'image',
+  new CacheFirst({
+    cacheName: 'images-cache',
+    plugins: [
+      new ExpirationPlugin({
+        maxEntries: 200,
+        maxAgeSeconds: 60 * 60 * 24 * 30, // 30 days
+      }),
+    ],
+  })
+)
 
-/**
- * Parse the requested byte range from the header.
- *
- * @param {string} range
- * @param {number} totalLength
- * @returns {({ start: number; end: number } | null)}
- */
-function parseByteRange(range: string, totalLength: number): { start: number; end: number } | null {
-	const [unit, rangeValue] = range.split("=")
+// Cache fonts
+registerRoute(
+  ({ request }) => request.destination === 'font',
+  new CacheFirst({
+    cacheName: 'fonts-cache',
+    plugins: [
+      new ExpirationPlugin({
+        maxEntries: 50,
+        maxAgeSeconds: 60 * 60 * 24 * 365, // 1 year
+      }),
+    ],
+  })
+)
 
-	if (unit !== "bytes" || !rangeValue) {
-		return null
-	}
+// Cache CSS and JS files
+registerRoute(
+  ({ request }) => 
+    request.destination === 'style' || 
+    request.destination === 'script',
+  new StaleWhileRevalidate({
+    cacheName: 'static-resources',
+  })
+)
 
-	const [startStr, endStr] = rangeValue.split("-")
+// Handle offline fallback
+registerRoute(
+  ({ request }) => request.mode === 'navigate',
+  new NetworkFirst({
+    cacheName: 'pages-cache',
+    plugins: [
+      new ExpirationPlugin({
+        maxEntries: 50,
+        maxAgeSeconds: 60 * 60 * 24 * 7, // 7 days
+      }),
+    ],
+  })
+)
 
-	if (!startStr) {
-		return null
-	}
+// Background sync for notes
+self.addEventListener('sync', (event) => {
+  if (event.tag === 'background-sync-notes') {
+    event.waitUntil(syncNotes())
+  }
+})
 
-	const start = parseInt(startStr, 10)
-	const end = endStr ? parseInt(endStr, 10) : totalLength - 1
-
-	if (isNaN(start) || isNaN(end) || start < 0 || end >= totalLength || start > end) {
-		return null
-	}
-
-	return {
-		start,
-		end
-	}
+async function syncNotes() {
+  try {
+    // Get pending notes from IndexedDB
+    const pendingNotes = await getPendingNotes()
+    
+    for (const note of pendingNotes) {
+      try {
+        // Attempt to sync the note
+        await syncNote(note)
+        // Remove from pending if successful
+        await removePendingNote(note.id)
+      } catch (error) {
+        console.error('Failed to sync note:', error)
+      }
+    }
+  } catch (error) {
+    console.error('Background sync failed:', error)
+  }
 }
 
-function getStream(request: Request): Response {
-	const searchParams = new URL(request.url).searchParams
-
-	if (!searchParams.has("file")) {
-		return new Response("404", {
-			status: 404
-		})
-	}
-
-	const isDownload = searchParams.has("download")
-	const fileBase64 = decodeURIComponent(searchParams.get("file") ?? "")
-	const file = JSON.parse(Buffer.from(fileBase64, "base64").toString("utf-8")) as {
-		name: string
-		mime: string
-		size: number
-		uuid: string
-		bucket: string
-		key: string
-		version: FileEncryptionVersion
-		chunks: number
-		region: string
-	}
-	const mimeType = file.mime.length > 0 ? file.mime : mimeTypes.lookup(file.name) || "application/octet-stream"
-	const totalLength = file.size
-	const range =
-		request.headers.get("range") ||
-		request.headers.get("Range") ||
-		request.headers.get("content-range") ||
-		request.headers.get("Content-Range")
-	let start = 0
-	let end = totalLength - 1
-	const responseHeaders = new Headers({
-		"Content-Security-Policy": "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:",
-		"X-Content-Security-Policy": "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:",
-		"X-WebKit-CSP": "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:",
-		"X-XSS-Protection": "1; mode=block",
-		"Cross-Origin-Embedder-Policy": "require-corp",
-		"X-Content-Type-Options": "nosniff"
-	})
-	let responseStatus = 200
-
-	responseHeaders.set("Content-Type", mimeType)
-
-	if (!isDownload) {
-		responseHeaders.set("Accept-Ranges", "bytes")
-	} else {
-		responseHeaders.set("Content-Disposition", `attachment; filename=${file.name}`)
-	}
-
-	// responseHeaders.set("Cache-Control", "no-store")
-	// responseHeaders.delete("Connection")
-
-	if (range && !isDownload) {
-		const parsedRange = parseByteRange(range, totalLength)
-
-		if (!parsedRange) {
-			responseHeaders.set("Content-Length", "0")
-			responseStatus = 400
-
-			return new Response(responseStatus.toString(), {
-				headers: responseHeaders,
-				status: responseStatus
-			})
-		}
-
-		start = parsedRange.start
-		end = parsedRange.end
-		responseStatus = 206
-		responseHeaders.set("Content-Range", `bytes ${start}-${end}/${totalLength}`)
-		responseHeaders.set("Content-Length", (end - start + 1).toString())
-	} else {
-		responseStatus = 200
-		responseHeaders.set("Content-Length", file.size.toString())
-	}
-
-	const stream = sdk.cloud().downloadFileToReadableStream({
-		uuid: file.uuid,
-		bucket: file.bucket,
-		region: file.region,
-		version: file.version,
-		key: file.key,
-		size: file.size,
-		chunks: file.chunks,
-		start,
-		end
-	})
-
-	request.signal.addEventListener("abort", () => {
-		stream.cancel().catch(() => {})
-	})
-
-	return new Response(stream, {
-		headers: responseHeaders,
-		status: responseStatus
-	})
+async function getPendingNotes(): Promise<any[]> {
+  // Implementation would depend on your IndexedDB structure
+  return []
 }
 
-function createStream(port: MessagePort) {
-	return new ReadableStream({
-		start(controller) {
-			port.onmessage = ({ data }) => {
-				if (data === "end") {
-					return controller.close()
-				}
-
-				if (data === "abort") {
-					controller.error("Aborted the download")
-					return
-				}
-
-				controller.enqueue(data)
-			}
-		},
-		cancel() {
-			port.postMessage({
-				abort: true
-			})
-		}
-	})
+async function syncNote(note: any): Promise<void> {
+  // Implementation would depend on your API
+  console.log('Syncing note:', note)
 }
 
-self.addEventListener("install", () => {
-	self.skipWaiting()
+async function removePendingNote(noteId: string): Promise<void> {
+  // Implementation would depend on your IndexedDB structure
+  console.log('Removing pending note:', noteId)
+}
+
+// Push notifications
+self.addEventListener('push', (event) => {
+  if (!event.data) return
+
+  const data = event.data.json()
+  
+  const options: NotificationOptions = {
+    body: data.body,
+    icon: '/android-chrome-192x192.png',
+    badge: '/notification-favicon-32x32.png',
+    vibrate: [200, 100, 200],
+    data: data.data,
+    actions: [
+      {
+        action: 'open',
+        title: 'Open',
+        icon: '/android-chrome-192x192.png'
+      },
+      {
+        action: 'close',
+        title: 'Close'
+      }
+    ]
+  }
+
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'Filen', options)
+  )
 })
 
-self.addEventListener("activate", event => {
-	event.waitUntil(self.clients.claim())
+// Handle notification clicks
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+
+  if (event.action === 'open' || !event.action) {
+    event.waitUntil(
+      self.clients.openWindow(event.notification.data?.url || '/')
+    )
+  }
 })
 
-self.addEventListener("message", e => {
-	const data = e.data
-
-	if (data === "ping") {
-		return
-	}
-
-	const downloadUrl = data.url || self.registration.scope + Math.random() + "/" + (typeof data === "string" ? data : data.filename)
-	const port = e.ports[0]
-	const metadata = new Array(3)
-
-	metadata[1] = data
-	metadata[2] = port
-
-	if (!port) {
-		return
-	}
-
-	if (e.data.readableStream) {
-		metadata[0] = e.data.readableStream
-	} else if (e.data.transferringReadable) {
-		port.onmessage = evt => {
-			port.onmessage = null
-			metadata[0] = evt.data.readableStream
-		}
-	} else {
-		metadata[0] = createStream(port)
-	}
-
-	map.set(downloadUrl, metadata)
-
-	port.postMessage({
-		download: downloadUrl
-	})
+// Handle app install prompt
+self.addEventListener('beforeinstallprompt', (event) => {
+  // Prevent the mini-infobar from appearing on mobile
+  event.preventDefault()
+  
+  // Stash the event so it can be triggered later
+  self.deferredPrompt = event
 })
 
-self.addEventListener("fetch", e => {
-	try {
-		const url = e.request.url
-		const builtURL = new URL(url)
-
-		if (builtURL.pathname === "/ping") {
-			e.respondWith(new Response("pong"))
-		} else if (builtURL.pathname === "/sw/ping") {
-			e.respondWith(
-				new Response("OK", {
-					status: 200,
-					headers: {
-						"Content-Type": "text/plain; charset=UTF-8"
-					}
-				})
-			)
-		} else if (builtURL.pathname === "/sw/stream") {
-			e.respondWith(getStream(e.request))
-		} else {
-			const mapData = map.get(url)
-
-			if (!mapData) {
-				return null
-			}
-
-			const [stream, data, port] = mapData
-
-			map.delete(url)
-
-			const responseHeaders = new Headers({
-				"Content-Type": "application/octet-stream; charset=utf-8",
-				"Content-Security-Policy": "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:",
-				"X-Content-Security-Policy": "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:",
-				"X-WebKit-CSP": "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:",
-				"X-XSS-Protection": "1; mode=block",
-				"Cross-Origin-Embedder-Policy": "require-corp",
-				"X-Content-Type-Options": "nosniff"
-			})
-
-			const headers = new Headers(data.headers || {})
-
-			if (headers.has("Content-Length")) {
-				responseHeaders.set("Content-Length", headers.get("Content-Length") ?? "0")
-			}
-
-			if (headers.has("Content-Disposition")) {
-				responseHeaders.set("Content-Disposition", headers.get("Content-Disposition") ?? "")
-			}
-
-			if (data.size) {
-				responseHeaders.set("Content-Length", data.size)
-			}
-
-			let fileName = typeof data === "string" ? data : data.filename
-
-			if (fileName) {
-				fileName = encodeURIComponent(fileName).replace(/['()]/g, escape).replace(/\*/g, "%2A")
-
-				responseHeaders.set("Content-Disposition", "attachment; filename*=UTF-8''" + fileName)
-			}
-
-			e.respondWith(
-				new Response(stream, {
-					headers: responseHeaders
-				})
-			)
-
-			port.postMessage({
-				debug: "Download started"
-			})
-		}
-	} catch (e) {
-		console.error(e)
-
-		return null
-	}
+// Skip waiting and claim clients immediately
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting()
+  }
 })
+
+// Claim all clients immediately
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim())
+})
+
+// Handle share target (if implemented)
+self.addEventListener('fetch', (event) => {
+  const url = new URL(event.request.url)
+  
+  if (url.pathname === '/share-target' && event.request.method === 'POST') {
+    event.respondWith(handleShareTarget(event.request))
+  }
+})
+
+async function handleShareTarget(request: Request): Promise<Response> {
+  const formData = await request.formData()
+  const title = formData.get('title') as string
+  const text = formData.get('text') as string
+  const url = formData.get('url') as string
+
+  // Store shared content for the app to pick up
+  const sharedContent = { title, text, url, timestamp: Date.now() }
+  
+  // You would store this in IndexedDB or similar
+  console.log('Shared content:', sharedContent)
+
+  // Redirect to the notes page
+  return Response.redirect('/notes', 302)
+}
+
+export {}

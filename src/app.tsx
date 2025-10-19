@@ -2,6 +2,7 @@
 //import "hacktimer/HackTimer.silent.min"
 import "web-streams-polyfill/dist/ponyfill"
 import "./index.css"
+import "./styles/mobile.css"
 import "react-quill/dist/quill.snow.css"
 import "./lib/i18n"
 //import "@xterm/xterm/css/xterm.css"

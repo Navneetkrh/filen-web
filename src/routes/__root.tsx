@@ -18,6 +18,7 @@ import CookieConsent from "@/components/cookieConsent"
 import LogoSVG from "@/assets/logo"
 import useIsMobile from "@/hooks/useIsMobile"
 import Page404 from "@/components/404"
+import PWAInstallPrompt from "@/components/pwa/installPrompt"
 import memoize from "lodash/memoize"
 
 window.disableInvalidAPIKeyLogout = false
@@ -180,27 +181,27 @@ export const Root = memo(() => {
 					) : (
 						<>
 							<CookieConsent>
-							{authed ? (
-								<>
+								{authed ? (
+									<>
+										<DropZone>
+											<DragSelect>
+												<Outlet />
+											</DragSelect>
+										</DropZone>
+									</>
+								) : (
 									<DropZone>
 										<DragSelect>
 											<Outlet />
 										</DragSelect>
 									</DropZone>
-								</>
-							) : (
-								<DropZone>
-									<DragSelect>
-										<Outlet />
-									</DragSelect>
-								</DropZone>
-							)}
-							<Transfers />
-							<PreviewDialog />
-							<InputDialog />
-							<ConfirmDialog />
-						</CookieConsent>
-					</>
+								)}
+								<Transfers />
+								<PreviewDialog />
+								<InputDialog />
+								<ConfirmDialog />
+							</CookieConsent>
+						</>
 					)}
 				</QueryClientProvider>
 			</ThemeProvider>
