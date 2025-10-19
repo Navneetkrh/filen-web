@@ -4,7 +4,7 @@ import { TextEditor } from "@/components/textEditor"
 import worker from "@/lib/worker"
 import useSDKConfig from "@/hooks/useSDKConfig"
 import { useQuery } from "@tanstack/react-query"
-import { Loader, Notebook, Paperclip, Plus, Trash2, Link2, Image as ImageIcon, FileText } from "lucide-react"
+import { Loader, Notebook, Paperclip, Plus, Trash2, Link2, Image as ImageIcon, FileText, Check } from "lucide-react"
 import { showInputDialog } from "@/components/dialogs/input"
 import useErrorToast from "@/hooks/useErrorToast"
 import useLoadingToast from "@/hooks/useLoadingToast"
@@ -107,6 +107,7 @@ export const NotesSimple = memo(() => {
 	const [content, setContent] = useState<string>("")
 	const [attachments, setAttachments] = useState<NoteAttachment[]>([])
 	const [saving, setSaving] = useState<boolean>(false)
+	const [saved, setSaved] = useState<boolean>(false)
 	const [attachmentUrls, setAttachmentUrls] = useState<Record<string, { url: string; mime: string }>>({})
 
 	const ensureNotesRoot = useCallback(async () => {
@@ -358,6 +359,7 @@ export const NotesSimple = memo(() => {
 			}
 
 			setSaving(true)
+			setSaved(false)
 
 			try {
 				if (noteFile) {
@@ -374,10 +376,18 @@ export const NotesSimple = memo(() => {
 
 				setNoteFile(uploaded)
 				setSaving(false)
+				setSaved(true)
+
+				// Hide the checkmark after 2 seconds
+				setTimeout(() => {
+					setSaved(false)
+				}, 2000)
+
 				await notesQuery.refetch()
 			} catch (e) {
 				console.error(e)
 				setSaving(false)
+				setSaved(false)
 				errorToast((e as Error).message ?? (e as Error).toString())
 			}
 		},
@@ -388,7 +398,7 @@ export const NotesSimple = memo(() => {
 		async (item: NoteAttachment, key: string) => {
 			try {
 				const buffer = (await worker.readFile({ item, emitEvents: false })) as Uint8Array
-				const blob = new Blob([buffer], { type: item.mime ?? "application/octet-stream" })
+				const blob = new Blob([new Uint8Array(buffer)], { type: item.mime ?? "application/octet-stream" })
 				const url = URL.createObjectURL(blob)
 
 				attachmentUrlsRef.current[key] = {
@@ -413,15 +423,17 @@ export const NotesSimple = memo(() => {
 				return
 			}
 
-			setSaving(true)
+			// Clear the saved checkmark when user starts typing
+			setSaved(false)
 
 			if (saveTimer.current) {
 				clearTimeout(saveTimer.current)
 			}
 
+			// Wait 1.5 seconds after user stops typing before saving
 			saveTimer.current = setTimeout(() => {
 				void saveContent(value)
-			}, 1000)
+			}, 1500)
 		},
 		[selectedNote, saveContent]
 	)
@@ -608,39 +620,38 @@ export const NotesSimple = memo(() => {
 		[content, onValueChange]
 	)
 
-	const noteContentHeight = windowSize.height - 48 - DESKTOP_TOPBAR_HEIGHT
+	const noteContentHeight = windowSize.height - DESKTOP_TOPBAR_HEIGHT - 80
 
 	return (
 		<div
 			className={cn(
-				"flex w-full gap-6 px-6 py-6 transition-colors",
+				"flex w-full gap-3 p-3 transition-colors",
 				dark ? "bg-[#111315]" : "bg-[#f5f3ef]"
 			)}
-			style={{ height: `calc(100dvh - ${DESKTOP_TOPBAR_HEIGHT + 48}px)` }}
+			style={{ height: `calc(100dvh - ${DESKTOP_TOPBAR_HEIGHT}px)` }}
 		>
 			<div
 				className={cn(
-					"flex h-full w-[320px] flex-col rounded-3xl border backdrop-blur-xl",
+					"flex h-full w-[280px] flex-col rounded-2xl border backdrop-blur-xl",
 					dark
 						? "border-white/5 bg-[#18181b]/80 shadow-[0_12px_40px_rgba(0,0,0,0.35)]"
 						: "border-white/60 bg-[#fbf9f4]/90 shadow-[0_20px_45px_rgba(0,0,0,0.08)]"
 				)}
 			>
-				<div className="flex items-center justify-between px-6 py-5">
+				<div className="flex items-center justify-between px-4 py-3">
 					<div>
-						<p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Notes</p>
-						<h2 className="mt-1 text-lg font-semibold">All Notes</h2>
+						<h2 className="text-base font-semibold">All Notes</h2>
 					</div>
 					<Button
 						variant="ghost"
-						className="gap-2 rounded-full bg-primary/10 px-4 text-primary hover:bg-primary/20"
+						size="sm"
+						className="h-8 w-8 rounded-full bg-primary/10 p-0 text-primary hover:bg-primary/20 transition-all duration-200 hover:scale-105 active:scale-95"
 						onClick={createNote}
 					>
 						<Plus size={16} />
-						New
 					</Button>
 				</div>
-				<div className="flex-1 overflow-auto px-2 pb-4">
+				<div className="flex-1 overflow-auto px-2 pb-2">
 					{notesQuery.isLoading ? (
 						<div className="flex h-full items-center justify-center">
 							<Loader className="animate-spin-medium" />
@@ -651,16 +662,16 @@ export const NotesSimple = memo(() => {
 							<p className="text-sm">Create your first note to get started.</p>
 						</div>
 					) : (
-						<ul className="flex flex-col gap-2">
+						<ul className="flex flex-col gap-1">
 							{sortedNotes.map(note => (
 								<li key={note.uuid}>
 									<button
 										className={cn(
-											"w-full rounded-2xl px-5 py-4 text-left transition",
+											"w-full rounded-xl px-3 py-2.5 text-left transition-all duration-200",
 											selectedNote?.uuid === note.uuid
 												? dark
-													? "bg-gradient-to-r from-primary/20 to-primary/10 text-white shadow-inner"
-													: "bg-gradient-to-r from-primary/10 to-primary/5 text-primary"
+													? "bg-gradient-to-r from-primary/20 to-primary/10 text-white shadow-lg"
+													: "bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-lg"
 												: dark
 													? "hover:bg-white/5"
 													: "hover:bg-white"
@@ -678,27 +689,42 @@ export const NotesSimple = memo(() => {
 					)}
 				</div>
 			</div>
-			<div className="flex flex-1 gap-6">
+			<div className="flex flex-1 gap-3">
 				<div
 					className={cn(
-						"flex flex-1 flex-col rounded-3xl border overflow-hidden",
+						"flex flex-1 flex-col rounded-2xl border overflow-hidden",
 						dark ? "border-white/5 bg-[#1c1c1e]/90 shadow-[0_30px_60px_rgba(0,0,0,0.4)]" : "border-white/70 bg-white shadow-[0_30px_70px_rgba(15,23,42,0.15)]"
 					)}
 				>
-					<div className="flex items-center justify-between border-b border-white/10 px-8 py-6">
+					<div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
 						<div className="flex items-center gap-3">
-							{saving ? <Loader className="animate-spin-medium" size={18} /> : null}
+							<div className="flex items-center gap-2">
+								{saving && (
+									<div className="flex items-center gap-2 text-blue-500">
+										<Loader className="animate-spin" size={16} />
+										<span className="text-xs font-medium">Saving...</span>
+									</div>
+								)}
+								{!saving && saved && (
+									<div className="flex items-center gap-2 text-green-500 animate-in fade-in duration-300">
+										<div className="rounded-full bg-green-500/10 p-1">
+											<Check size={14} className="stroke-[3]" />
+										</div>
+										<span className="text-xs font-medium">Saved</span>
+									</div>
+								)}
+							</div>
 							<div>
-								<p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Title</p>
-								<h1 className="text-2xl font-semibold leading-tight">
+								<h1 className="text-lg font-semibold leading-tight">
 									{selectedNote ? selectedNote.name : "Select a note"}
 								</h1>
 							</div>
 						</div>
-						<div className="flex items-center gap-3">
+						<div className="flex items-center gap-2">
 							<Button
 								variant="ghost"
-								className="rounded-full border border-white/20 px-4 text-sm"
+								size="sm"
+								className="h-8 rounded-lg border border-white/20 px-3 text-xs"
 								onClick={renameNote}
 								disabled={!selectedNote}
 							>
@@ -706,12 +732,12 @@ export const NotesSimple = memo(() => {
 							</Button>
 							<Button
 								variant="ghost"
-								className="rounded-full border border-destructive/30 px-4 text-sm text-destructive hover:bg-destructive/10"
+								size="sm"
+								className="h-8 rounded-lg border border-destructive/30 px-3 text-xs text-destructive hover:bg-destructive/10"
 								onClick={deleteNote}
 								disabled={!selectedNote}
 							>
-								<Trash2 size={16} className="mr-2" />
-								Delete
+								<Trash2 size={14} />
 							</Button>
 						</div>
 					</div>
@@ -728,7 +754,7 @@ export const NotesSimple = memo(() => {
 									readOnly={false}
 									placeholder="Write your note..."
 									showMarkdownPreview={true}
-								customMarkdownComponents={attachmentMarkdownComponents as any}
+									customMarkdownComponents={attachmentMarkdownComponents as any}
 								/>
 							</div>
 						) : (
@@ -740,17 +766,14 @@ export const NotesSimple = memo(() => {
 				</div>
 				<div
 					className={cn(
-						"flex w-[300px] flex-col rounded-3xl border",
+						"flex w-[260px] flex-col rounded-2xl border",
 						dark ? "border-white/5 bg-[#151517]/90 shadow-[0_25px_60px_rgba(0,0,0,0.45)]" : "border-white/70 bg-[#fffdf8] shadow-[0_25px_70px_rgba(15,23,42,0.12)]"
 					)}
 				>
-					<div className="flex items-center justify-between border-b border-white/10 px-6 py-5">
-						<div className="flex items-center gap-3">
-							<Paperclip size={16} />
-							<div>
-								<p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Attachments</p>
-								<h3 className="text-lg font-semibold">Resources</h3>
-							</div>
+					<div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+						<div className="flex items-center gap-2">
+							<Paperclip size={14} />
+							<h3 className="text-sm font-semibold">Attachments</h3>
 						</div>
 						<div>
 							<input
@@ -762,22 +785,23 @@ export const NotesSimple = memo(() => {
 							/>
 							<Button
 								variant="ghost"
-								className="rounded-full border border-white/20 px-4 text-sm"
+								size="sm"
+								className="h-7 rounded-lg border border-white/20 px-2 text-xs"
 								onClick={() => document.getElementById("mdnote-attachments-input")?.click()}
 								disabled={!selectedNote}
 							>
-								Add
+								<Plus size={12} />
 							</Button>
 						</div>
 					</div>
-					<div className="flex-1 overflow-auto px-4 pb-6">
+					<div className="flex-1 overflow-auto px-3 pb-3">
 						{selectedNote ? (
 							attachments.length === 0 ? (
-								<div className="mt-6 rounded-2xl bg-muted/30 px-4 py-6 text-center text-sm text-muted-foreground">
-									Drop files here or use the Add button to attach documents.
+								<div className="mt-4 rounded-xl bg-muted/30 px-3 py-4 text-center text-xs text-muted-foreground">
+									No attachments
 								</div>
 							) : (
-								<ul className="flex flex-col gap-4">
+								<ul className="flex flex-col gap-2 mt-2">
 									{attachments.map((item: NoteAttachment) => {
 										const key = getAttachmentKey(item)
 										const preview = attachmentUrls[key]
@@ -787,48 +811,47 @@ export const NotesSimple = memo(() => {
 											<li
 												key={item.uuid}
 												className={cn(
-													"rounded-2xl border px-4 py-4 transition",
-													dark ? "border-white/10 bg-white/5" : "border-black/10 bg-white"
+													"rounded-xl border px-3 py-2 transition-all duration-200",
+													dark ? "border-white/10 bg-white/5 hover:bg-white/10" : "border-black/10 bg-white hover:shadow-md"
 												)}
 											>
-												<div className="overflow-hidden rounded-xl">
+												<div className="overflow-hidden rounded-lg">
 													{isImage && preview ? (
 														<img
 															src={preview.url}
 															alt={item.name}
-															className="h-32 w-full rounded-xl object-cover"
+															className="h-24 w-full rounded-lg object-cover"
 														/>
 													) : (
-														<div className="flex h-32 flex-col items-center justify-center gap-2 rounded-xl bg-muted/40 text-muted-foreground">
-															{isImage ? <ImageIcon size={24} /> : <FileText size={24} />}
-															<span className="text-xs uppercase tracking-[0.2em]">{item.mime ?? "File"}</span>
+														<div className="flex h-24 flex-col items-center justify-center gap-1 rounded-lg bg-muted/40 text-muted-foreground">
+															{isImage ? <ImageIcon size={20} /> : <FileText size={20} />}
+															<span className="text-[10px] uppercase tracking-wider">{item.mime ?? "File"}</span>
 														</div>
 													)}
 												</div>
-												<div className="mt-4 flex items-start justify-between gap-3">
-													<div>
-														<p className="font-medium leading-tight">{item.name}</p>
-														<p className="text-xs text-muted-foreground">
-															{formatBytes(item.size)} • {item.lastModified ? new Date(item.lastModified).toLocaleDateString() : ""}
+												<div className="mt-2 flex items-start justify-between gap-2">
+													<div className="flex-1 min-w-0">
+														<p className="text-xs font-medium leading-tight truncate">{item.name}</p>
+														<p className="text-[10px] text-muted-foreground">
+															{formatBytes(item.size)}
 														</p>
 													</div>
-													<div className="flex items-center gap-2">
+													<div className="flex items-center gap-1">
 														<Button
 															variant="ghost"
 															size="sm"
-															className="gap-2 rounded-full border border-primary/30 px-3 text-primary"
+															className="h-6 w-6 p-0 rounded-md text-primary hover:bg-primary/10 transition-all duration-200"
 															onClick={() => insertAttachment(item)}
 														>
-															<Link2 size={14} />
-															Embed
+															<Link2 size={12} />
 														</Button>
 														<Button
 															variant="ghost"
 															size="sm"
-															className="rounded-full border border-destructive/30 text-destructive"
+															className="h-6 w-6 p-0 rounded-md text-destructive hover:bg-destructive/10 transition-all duration-200"
 															onClick={() => onDeleteAttachment(item)}
 														>
-															<Trash2 size={14} />
+															<Trash2 size={12} />
 														</Button>
 													</div>
 												</div>
@@ -838,8 +861,8 @@ export const NotesSimple = memo(() => {
 								</ul>
 							)
 						) : (
-							<div className="mt-6 rounded-2xl bg-muted/30 px-4 py-6 text-center text-sm text-muted-foreground">
-								Select a note to manage attachments.
+							<div className="mt-4 rounded-xl bg-muted/30 px-3 py-4 text-center text-xs text-muted-foreground">
+								Select a note
 							</div>
 						)}
 					</div>

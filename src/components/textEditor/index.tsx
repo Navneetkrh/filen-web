@@ -99,28 +99,28 @@ export const TextEditor = memo(
 		const extensions = useMemo(() => {
 			return type === "code"
 				? [
-						...langExtension,
-						hyperLink,
-						color,
-						EditorView.lineWrapping,
-						EditorView.theme({
-							"&": {
-								fontFamily: "Menlo, Monaco, Lucida Console, monospace"
-							},
-							".cm-content": {
-								padding: "0px"
-							}
-						})
-					]
+					...langExtension,
+					hyperLink,
+					color,
+					EditorView.lineWrapping,
+					EditorView.theme({
+						"&": {
+							fontFamily: "Menlo, Monaco, Lucida Console, monospace"
+						},
+						".cm-content": {
+							padding: "16px"
+						}
+					})
+				]
 				: [
-						EditorView.lineWrapping,
-						EditorView.theme({
-							".cm-content": {
-								padding: "10px",
-								paddingTop: "13px"
-							}
-						})
-					]
+					EditorView.lineWrapping,
+					EditorView.theme({
+						".cm-content": {
+							padding: "10px",
+							paddingTop: "13px"
+						}
+					})
+				]
 		}, [type, langExtension])
 
 		const onCreateEditor = useCallback((view: EditorView) => {
