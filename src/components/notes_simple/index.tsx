@@ -482,15 +482,21 @@ export const NotesSimple = memo(() => {
 
 		attachments.forEach(item => {
 			const key = getAttachmentKey(item)
+			const isImage = item.mime?.startsWith("image/")
 
-			if (neededKeys.has(key) && !attachmentUrlsRef.current[key] && !fetchingAttachmentsRef.current.has(key)) {
+			// Fetch preview if it's needed in content OR if it's an image (for sidebar preview)
+			if ((neededKeys.has(key) || isImage) && !attachmentUrlsRef.current[key] && !fetchingAttachmentsRef.current.has(key)) {
 				fetchingAttachmentsRef.current.add(key)
 				void fetchAttachmentPreview(item, key)
 			}
 		})
 
+		// Only clean up URLs that are not needed in content AND not images
 		for (const key of Object.keys(attachmentUrlsRef.current)) {
-			if (!neededKeys.has(key)) {
+			const attachment = attachments.find(item => getAttachmentKey(item) === key)
+			const isImage = attachment?.mime?.startsWith("image/")
+
+			if (!neededKeys.has(key) && !isImage) {
 				const current = attachmentUrlsRef.current[key]
 				if (current) {
 					URL.revokeObjectURL(current.url)
@@ -498,7 +504,6 @@ export const NotesSimple = memo(() => {
 				delete attachmentUrlsRef.current[key]
 			}
 		}
-
 
 		setAttachmentUrls({ ...attachmentUrlsRef.current })
 	}, [attachments, content, fetchAttachmentPreview])
@@ -650,6 +655,7 @@ export const NotesSimple = memo(() => {
 									height={noteContentHeight}
 									placeholder="Start writing your beautiful note..."
 									className="h-full"
+									attachmentUrls={attachmentUrls}
 								/>
 							</div>
 						) : (

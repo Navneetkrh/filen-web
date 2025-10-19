@@ -7,13 +7,15 @@ export const NovelEditor = memo(({
     onChange,
     placeholder = "Start writing...",
     height,
-    className
+    className,
+    attachmentUrls = {}
 }: {
     value: string
     onChange: (value: string) => void
     placeholder?: string
     height?: number
     className?: string
+    attachmentUrls?: Record<string, { url: string; mime: string }>
 }) => {
     return (
         <div
@@ -26,6 +28,7 @@ export const NovelEditor = memo(({
                 placeholder={placeholder}
                 height={height}
                 className="w-full h-full"
+                attachmentUrls={attachmentUrls}
             />
         </div>
     )

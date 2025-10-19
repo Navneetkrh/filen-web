@@ -11,6 +11,7 @@ import { TableHeader } from "@tiptap/extension-table-header"
 import { TableCell } from "@tiptap/extension-table-cell"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/providers/themeProvider"
+import { Attachment } from "./extensions/attachment"
 import Toolbar from "./toolbar"
 import "./styles.css"
 
@@ -21,7 +22,8 @@ export const TiptapEditor = memo(({
     height,
     className,
     editable = true,
-    showToolbar = true
+    showToolbar = true,
+    attachmentUrls = {}
 }: {
     value: string
     onChange: (value: string) => void
@@ -30,6 +32,7 @@ export const TiptapEditor = memo(({
     className?: string
     editable?: boolean
     showToolbar?: boolean
+    attachmentUrls?: Record<string, { url: string; mime: string }>
 }) => {
     const { dark } = useTheme()
 
@@ -60,6 +63,12 @@ export const TiptapEditor = memo(({
                     class: 'max-w-full h-auto rounded-lg',
                 },
             }),
+            Attachment.configure({
+                HTMLAttributes: {
+                    class: 'max-w-full h-auto rounded-lg',
+                },
+                attachmentUrls,
+            }),
             Table.configure({
                 resizable: true,
             }),
@@ -88,6 +97,18 @@ export const TiptapEditor = memo(({
             editor.setEditable(editable)
         }
     }, [editor, editable])
+
+    // Update attachment URLs when they change
+    useEffect(() => {
+        if (editor) {
+            const attachmentExtension = editor.extensionManager.extensions.find(ext => ext.name === 'attachment')
+            if (attachmentExtension) {
+                attachmentExtension.options.attachmentUrls = attachmentUrls
+                // Force re-render by dispatching a transaction
+                editor.view.dispatch(editor.state.tr)
+            }
+        }
+    }, [editor, attachmentUrls])
 
     return (
         <div
