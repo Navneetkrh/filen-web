@@ -168,6 +168,17 @@ export const MainContainer = memo(({ children }: { children: React.ReactNode }) 
 		[setResizablePanelSizes, panelContainerWidth]
 	)
 
+	if (location.includes("/notes")) {
+		return (
+			<Wrapper>
+				<SideBar key="sidebar" />
+				<div className={cn("flex flex-1", dark ? "bg-[#1b1b1d]" : "bg-[#f5f3ef]")}>
+					<div className="flex grow">{children}</div>
+				</div>
+			</Wrapper>
+		)
+	}
+
 	return (
 		<Wrapper>
 			<SideBar key="sidebar" />

@@ -16,7 +16,6 @@ import { useLocalStorage } from "@uidotdev/usehooks"
 import useRouteParent from "@/hooks/useRouteParent"
 import useLocation from "@/hooks/useLocation"
 import eventEmitter from "@/lib/eventEmitter"
-import Notes from "./notes"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/providers/themeProvider"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -125,7 +124,6 @@ export const TopBar = memo(() => {
 
 	if (
 		location.includes("/settings") ||
-		location === "/notes" ||
 		location.includes("/chats") ||
 		location.includes("/contacts") ||
 		location.includes("/syncs")
@@ -133,9 +131,7 @@ export const TopBar = memo(() => {
 		return null
 	}
 
-	return location.includes("notes") ? (
-		<Notes />
-	) : (
+	return (
 		<div
 			className="w-full h-12 flex flex-row justify-between border-b select-none"
 			style={{

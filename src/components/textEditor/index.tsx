@@ -9,7 +9,7 @@ import { useLocalStorage } from "@uidotdev/usehooks"
 import CodeMirror, { EditorView, type ReactCodeMirrorRef } from "@uiw/react-codemirror"
 import { usePublicLinkURLState } from "@/hooks/usePublicLink"
 import useLocation from "@/hooks/useLocation"
-import Markdown, { type ExtraProps } from "react-markdown"
+import Markdown, { type ExtraProps, type Components } from "react-markdown"
 import { type Element, type Root } from "hast"
 import gfm from "remark-gfm"
 import { remarkAlert } from "remark-github-blockquote-alert"
@@ -35,7 +35,8 @@ export const TextEditor = memo(
 		placeholder,
 		showMarkdownPreview,
 		onBlur,
-		maxLength
+		maxLength,
+		customMarkdownComponents
 	}: {
 		value: string
 		setValue: React.Dispatch<React.SetStateAction<string>>
@@ -51,6 +52,7 @@ export const TextEditor = memo(
 		showMarkdownPreview?: boolean
 		onBlur?: () => void
 		maxLength?: number
+		customMarkdownComponents?: Partial<Components>
 	}) => {
 		const codeMirrorRef = useRef<ReactCodeMirrorRef>(null)
 		const publicLinkURLState = usePublicLinkURLState()
@@ -128,7 +130,7 @@ export const TextEditor = memo(
 		}, [])
 
 		const markdownComponents = useMemo(() => {
-			return {
+			const base: Components = {
 				code(props: ClassAttributes<HTMLElement> & HTMLAttributes<HTMLElement> & ExtraProps) {
 					try {
 						// eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -157,7 +159,9 @@ export const TextEditor = memo(
 					}
 				}
 			}
-		}, [dark])
+
+			return customMarkdownComponents ? { ...base, ...customMarkdownComponents } : base
+		}, [dark, customMarkdownComponents])
 
 		const markdownAllowElement = useCallback((element: Element) => {
 			if (!element.tagName) {

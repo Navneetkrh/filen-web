@@ -51,9 +51,7 @@ export const Button = memo(({ id }: { id: string }) => {
 						: id === "mounts"
 							? "/mounts/$type"
 							: id === "notes"
-								? lastSelectedNote.length > 0
-									? "/notes/$uuid"
-									: "/notes"
+								? "/notes"
 								: id === "chats"
 									? lastSelectedChatsConversation.length > 0
 										? "/chats/$uuid"
@@ -68,25 +66,23 @@ export const Button = memo(({ id }: { id: string }) => {
 			params:
 				id === baseFolderUUID
 					? {
-							_splat: baseFolderUUID
-						}
+						_splat: baseFolderUUID
+					}
 					: id === "settings"
 						? {
-								type: "general"
-							}
+							type: "general"
+						}
 						: id === "mounts"
 							? {
-									type: "network-drive"
-								}
+								type: "network-drive"
+							}
 							: id === "contacts"
 								? {
-										type: requestsInCount > 0 ? "in" : "all"
-									}
-								: id === "notes" && lastSelectedNote.length > 0
-									? { uuid: lastSelectedNote }
-									: id === "chats" && lastSelectedChatsConversation.length > 0
-										? { uuid: lastSelectedChatsConversation }
-										: undefined
+									type: requestsInCount > 0 ? "in" : "all"
+								}
+								: id === "chats" && lastSelectedChatsConversation.length > 0
+									? { uuid: lastSelectedChatsConversation }
+									: undefined
 		}
 	}, [id, baseFolderUUID, lastSelectedNote, lastSelectedChatsConversation, requestsInCount])
 

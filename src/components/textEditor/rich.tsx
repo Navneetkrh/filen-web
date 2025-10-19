@@ -1,7 +1,7 @@
 import { memo, useState, useCallback, useEffect, useMemo } from "react"
 import Quill from "react-quill"
 import { useTheme } from "@/providers/themeProvider"
-import { normalizeChecklistValue } from "../notes/utils"
+const normalizeChecklistValue = (value: string): string => value
 
 export const RichTextEditor = memo(
 	({

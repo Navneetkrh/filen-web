@@ -3,7 +3,6 @@ import useSDKConfig from "@/hooks/useSDKConfig"
 import { Link } from "@tanstack/react-router"
 import { useTranslation } from "react-i18next"
 import useLocation from "@/hooks/useLocation"
-import Notes from "./notes"
 import Chats from "./chats"
 import { cn } from "@/lib/utils"
 import useIsMobile from "@/hooks/useIsMobile"
@@ -17,11 +16,9 @@ export const Top = memo(() => {
 
 	return (
 		<>
-			{location.includes("/chats") ? (
-				<Chats />
-			) : location.includes("/notes") ? (
-				<Notes />
-			) : location.includes("/syncs") ? (
+		{location.includes("/chats") ? (
+			<Chats />
+		) : location.includes("/syncs") ? (
 				<Syncs />
 			) : (
 				<div
@@ -65,9 +62,7 @@ export const Top = memo(() => {
 						<p className={cn(isMobile && "line-clamp-1 text-ellipsis break-all")}>
 							{location.includes("settings")
 								? t("innerSideBar.top.settings")
-								: location.includes("notes")
-									? t("innerSideBar.top.notes")
-									: location.includes("chats")
+				: location.includes("chats")
 										? t("innerSideBar.top.chats")
 										: location.includes("contacts")
 											? t("innerSideBar.top.contacts")

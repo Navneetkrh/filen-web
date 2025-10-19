@@ -21,7 +21,6 @@ import { Route as IndexImport } from './routes/index'
 import { Route as SyncsUuidImport } from './routes/syncs.$uuid'
 import { Route as SettingsTypeImport } from './routes/settings.$type'
 import { Route as ResetTokenImport } from './routes/reset.$token'
-import { Route as NotesUuidImport } from './routes/notes.$uuid'
 import { Route as MountsTypeImport } from './routes/mounts.$type'
 import { Route as FUuidImport } from './routes/f.$uuid'
 import { Route as DriveSplatImport } from './routes/drive.$'
@@ -79,11 +78,6 @@ const SettingsTypeRoute = SettingsTypeImport.update({
 const ResetTokenRoute = ResetTokenImport.update({
   path: '/reset/$token',
   getParentRoute: () => rootRoute,
-} as any)
-
-const NotesUuidRoute = NotesUuidImport.update({
-  path: '/$uuid',
-  getParentRoute: () => NotesRoute,
 } as any)
 
 const MountsTypeRoute = MountsTypeImport.update({
@@ -172,10 +166,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MountsTypeImport
       parentRoute: typeof rootRoute
     }
-    '/notes/$uuid': {
-      preLoaderRoute: typeof NotesUuidImport
-      parentRoute: typeof NotesImport
-    }
     '/reset/$token': {
       preLoaderRoute: typeof ResetTokenImport
       parentRoute: typeof rootRoute
@@ -197,7 +187,7 @@ export const routeTree = rootRoute.addChildren([
   IndexRoute,
   ChatsRoute.addChildren([ChatsUuidRoute]),
   LoginRoute,
-  NotesRoute.addChildren([NotesUuidRoute]),
+  NotesRoute,
   RegisterRoute,
   SyncsRoute.addChildren([SyncsUuidRoute]),
   TerminalRoute,

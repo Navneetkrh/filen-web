@@ -4,7 +4,6 @@ import Button from "./button"
 import { DESKTOP_TOPBAR_HEIGHT } from "@/constants"
 import useWindowSize from "@/hooks/useWindowSize"
 import Divider from "./divider"
-import Notes from "./notes"
 import { cn } from "@/lib/utils"
 import useLocation from "@/hooks/useLocation"
 import Top from "./top"
@@ -18,19 +17,16 @@ export const InnerSideBar = memo(() => {
 	const windowSize = useWindowSize()
 	const location = useLocation()
 	const chatsTopDimensions = useElementDimensions("inner-sidebar-top-chats")
-	const notesTopDimensions = useElementDimensions("inner-sidebar-top-notes")
 
 	const containerHeight = useMemo(() => {
 		const topHeight = location.includes("chats")
 			? chatsTopDimensions.height
-			: location.includes("notes")
-				? notesTopDimensions.height
-				: location.includes("/drive")
-					? 48
-					: 24
+			: location.includes("/drive")
+				? 48
+				: 24
 
 		return windowSize.height - DESKTOP_TOPBAR_HEIGHT - 48 - topHeight
-	}, [location, chatsTopDimensions.height, notesTopDimensions.height, windowSize.height])
+	}, [location, chatsTopDimensions.height, windowSize.height])
 
 	return (
 		<div className="w-full flex flex-col h-full select-none">
@@ -38,7 +34,7 @@ export const InnerSideBar = memo(() => {
 			<div
 				className={cn(
 					"flex flex-col overflow-y-auto overflow-x-hidden dragselect-start-allowed",
-					!location.includes("notes") && !location.includes("chats") ? "py-3" : ""
+					!location.includes("chats") ? "py-3" : ""
 				)}
 				style={{
 					height: containerHeight
@@ -68,7 +64,6 @@ export const InnerSideBar = memo(() => {
 						<Button uuid="settings/invite" />
 					</>
 				)}
-				{location.includes("/notes") && <Notes />}
 				{location.includes("/chats") && <Chats />}
 				{location.includes("/contacts") && (
 					<>
