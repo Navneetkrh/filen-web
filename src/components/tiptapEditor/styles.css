@@ -1,0 +1,146 @@
+/* Tiptap Editor Styles */
+.tiptap-editor-container {
+  @apply relative overflow-hidden;
+}
+
+.tiptap-editor {
+  @apply h-full overflow-auto;
+}
+
+.tiptap-editor .ProseMirror {
+  @apply p-4 h-full min-h-full outline-none;
+}
+
+.tiptap-editor .ProseMirror:focus {
+  @apply outline-none;
+}
+
+/* Placeholder styles */
+.tiptap-editor .ProseMirror p.is-editor-empty:first-child::before {
+  @apply text-muted-foreground pointer-events-none float-left h-0;
+  content: attr(data-placeholder);
+}
+
+/* Heading styles */
+.tiptap-editor .ProseMirror h1 {
+  @apply text-3xl font-bold mt-6 mb-4 first:mt-0;
+}
+
+.tiptap-editor .ProseMirror h2 {
+  @apply text-2xl font-bold mt-5 mb-3 first:mt-0;
+}
+
+.tiptap-editor .ProseMirror h3 {
+  @apply text-xl font-bold mt-4 mb-2 first:mt-0;
+}
+
+.tiptap-editor .ProseMirror h4 {
+  @apply text-lg font-bold mt-3 mb-2 first:mt-0;
+}
+
+.tiptap-editor .ProseMirror h5 {
+  @apply text-base font-bold mt-2 mb-1 first:mt-0;
+}
+
+.tiptap-editor .ProseMirror h6 {
+  @apply text-sm font-bold mt-2 mb-1 first:mt-0;
+}
+
+/* List styles */
+.tiptap-editor .ProseMirror ul {
+  @apply list-disc pl-6 my-3;
+}
+
+.tiptap-editor .ProseMirror ol {
+  @apply list-decimal pl-6 my-3;
+}
+
+.tiptap-editor .ProseMirror li {
+  @apply my-1;
+}
+
+.tiptap-editor .ProseMirror li p {
+  @apply my-0;
+}
+
+/* Paragraph styles */
+.tiptap-editor .ProseMirror p {
+  @apply my-3 first:mt-0 last:mb-0;
+}
+
+/* Code styles */
+.tiptap-editor .ProseMirror code {
+  @apply bg-muted px-1.5 py-0.5 rounded text-sm font-mono;
+}
+
+.tiptap-editor .ProseMirror pre {
+  @apply bg-muted p-4 rounded-lg my-4 overflow-x-auto;
+}
+
+.tiptap-editor .ProseMirror pre code {
+  @apply bg-transparent p-0 text-sm;
+}
+
+/* Blockquote styles */
+.tiptap-editor .ProseMirror blockquote {
+  @apply border-l-4 border-border pl-4 my-4 italic text-muted-foreground;
+}
+
+/* Table styles */
+.tiptap-editor .ProseMirror table {
+  @apply border-collapse border border-border my-4 w-full;
+}
+
+.tiptap-editor .ProseMirror th,
+.tiptap-editor .ProseMirror td {
+  @apply border border-border px-3 py-2 text-left;
+}
+
+.tiptap-editor .ProseMirror th {
+  @apply bg-muted font-semibold;
+}
+
+/* Selection styles */
+.tiptap-editor .ProseMirror .selectedCell:after {
+  @apply absolute inset-0 bg-blue-100 pointer-events-none;
+  content: "";
+  z-index: 2;
+}
+
+/* Dark mode adjustments */
+.dark .tiptap-editor .ProseMirror .selectedCell:after {
+  @apply bg-blue-900;
+}
+
+/* Link styles */
+.tiptap-editor .ProseMirror a {
+  @apply text-blue-500 hover:text-blue-700 underline cursor-pointer;
+}
+
+.dark .tiptap-editor .ProseMirror a {
+  @apply text-blue-400 hover:text-blue-300;
+}
+
+/* Image styles */
+.tiptap-editor .ProseMirror img {
+  @apply max-w-full h-auto rounded-lg my-4;
+}
+
+/* Horizontal rule */
+.tiptap-editor .ProseMirror hr {
+  @apply border-0 border-t border-border my-6;
+}
+
+/* Strong and emphasis */
+.tiptap-editor .ProseMirror strong {
+  @apply font-bold;
+}
+
+.tiptap-editor .ProseMirror em {
+  @apply italic;
+}
+
+/* Strike through */
+.tiptap-editor .ProseMirror s {
+  @apply line-through;
+}

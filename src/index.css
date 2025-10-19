@@ -133,3 +133,5 @@
 	margin-top: 0;
 	margin-bottom: 0;
 }
+/* Novel Editor Styles */
+@import url("./components/novelEditor/styles.css");

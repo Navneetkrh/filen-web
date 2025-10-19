@@ -1,4 +1,4 @@
-import { memo, useMemo, useCallback, useEffect, useRef, type ClassAttributes, type HTMLAttributes } from "react"
+import { memo, useMemo, useCallback, useEffect, useRef, useState, type ClassAttributes, type HTMLAttributes } from "react"
 import * as themes from "./theme"
 import { useTheme } from "@/providers/themeProvider"
 import { loadLanguage } from "./langs"
@@ -18,6 +18,8 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
 import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism"
 import rehypeExternalLinks from "rehype-external-links"
 import { visit } from "unist-util-visit"
+import { Button } from "../ui/button"
+import { Code, Eye } from "lucide-react"
 import "./markdownStyle.less"
 
 export const TextEditor = memo(
@@ -65,6 +67,9 @@ export const TextEditor = memo(
 					? "textEditorResizablePanelSizes:publicLink"
 					: "textEditorResizablePanelSizes",
 			[50, 50]
+		)
+		const [viewMode, setViewMode] = useState<"preview" | "code" | "split">(
+			showMarkdownPreview ? "preview" : "code"
 		)
 
 		const onChange = useCallback(
@@ -196,86 +201,176 @@ export const TextEditor = memo(
 		}, [])
 
 		return (
-			<div className="flex flex-row w-full h-full">
-				<ResizablePanelGroup
-					direction="horizontal"
-					onLayout={setResizablePanelSizes}
-				>
-					<ResizablePanel
-						defaultSize={resizablePanelSizes[0]}
-						minSize={20}
-						maxSize={80}
-						order={1}
-						className={type === "code" ? "font-mono" : undefined}
-					>
-						<CodeMirror
-							ref={codeMirrorRef}
-							value={value}
-							onChange={onChange}
-							height={height + "px"}
-							maxHeight={height + "px"}
-							minHeight={height + "px"}
-							width="100%"
-							maxWidth="100%"
-							minWidth="100%"
-							theme={editorTheme}
-							extensions={extensions}
-							indentWithTab={indentWithTab}
-							editable={editable}
-							autoFocus={autoFocus}
-							readOnly={readOnly}
-							placeholder={placeholder}
-							onBlur={onBlur}
-							onCreateEditor={onCreateEditor}
-							basicSetup={{
-								lineNumbers: type === "code",
-								searchKeymap: type === "code",
-								tabSize: 4,
-								highlightActiveLine: type === "code",
-								highlightActiveLineGutter: type === "code",
-								foldGutter: type === "code",
-								foldKeymap: type === "code",
-								syntaxHighlighting: type === "code"
-							}}
-							style={{
-								height,
-								minHeight: height,
-								maxHeight: height,
-								width: "100%",
-								minWidth: "100%",
-								maxWidth: "100%"
-							}}
-						/>
-					</ResizablePanel>
-					{showMarkdownPreview && (
-						<>
-							<ResizableHandle
-								className="bg-transparent w-0"
-								withHandle={true}
+			<div className="flex flex-col w-full h-full">
+				{showMarkdownPreview && (
+					<div className="flex items-center justify-end gap-2 p-2 border-b border-border/50">
+						<Button
+							variant={viewMode === "preview" ? "default" : "ghost"}
+							size="sm"
+							onClick={() => setViewMode("preview")}
+							className="h-7 px-2 text-xs"
+						>
+							<Eye size={14} className="mr-1" />
+							Preview
+						</Button>
+						<Button
+							variant={viewMode === "code" ? "default" : "ghost"}
+							size="sm"
+							onClick={() => setViewMode("code")}
+							className="h-7 px-2 text-xs"
+						>
+							<Code size={14} className="mr-1" />
+							Code
+						</Button>
+						<Button
+							variant={viewMode === "split" ? "default" : "ghost"}
+							size="sm"
+							onClick={() => setViewMode("split")}
+							className="h-7 px-2 text-xs"
+						>
+							Split
+						</Button>
+					</div>
+				)}
+				<div className="flex flex-row w-full flex-1">
+					{viewMode === "preview" && showMarkdownPreview ? (
+						<div className="w-full h-full">
+							<Markdown
+								children={value}
+								className={cn(
+									"markdown-content wmde-markdown wmde-markdown-color w-full h-full bg-transparent overflow-auto pb-12 px-4 pt-4",
+									dark ? "text-white" : "text-black"
+								)}
+								skipHtml={true}
+								remarkPlugins={[remarkAlert, gfm]}
+								rehypePlugins={[[rehypeExternalLinks, { target: "_blank" }], markdownRehypeRewriteLinks]}
+								allowElement={markdownAllowElement}
+								components={markdownComponents}
 							/>
+						</div>
+					) : viewMode === "code" || !showMarkdownPreview ? (
+						<div className="w-full h-full">
+							<CodeMirror
+								ref={codeMirrorRef}
+								value={value}
+								onChange={onChange}
+								height={height + "px"}
+								maxHeight={height + "px"}
+								minHeight={height + "px"}
+								width="100%"
+								maxWidth="100%"
+								minWidth="100%"
+								theme={editorTheme}
+								extensions={extensions}
+								indentWithTab={indentWithTab}
+								editable={editable}
+								autoFocus={autoFocus}
+								readOnly={readOnly}
+								placeholder={placeholder}
+								onBlur={onBlur}
+								onCreateEditor={onCreateEditor}
+								basicSetup={{
+									lineNumbers: type === "code",
+									searchKeymap: type === "code",
+									tabSize: 4,
+									highlightActiveLine: type === "code",
+									highlightActiveLineGutter: type === "code",
+									foldGutter: type === "code",
+									foldKeymap: type === "code",
+									syntaxHighlighting: type === "code"
+								}}
+								style={{
+									height,
+									minHeight: height,
+									maxHeight: height,
+									width: "100%",
+									minWidth: "100%",
+									maxWidth: "100%"
+								}}
+							/>
+						</div>
+					) : (
+						<ResizablePanelGroup
+							direction="horizontal"
+							onLayout={setResizablePanelSizes}
+						>
 							<ResizablePanel
-								defaultSize={resizablePanelSizes[1]}
+								defaultSize={resizablePanelSizes[0]}
 								minSize={20}
 								maxSize={80}
-								order={2}
-								className="border-l"
+								order={1}
+								className={type === "code" ? "font-mono" : undefined}
 							>
-								<Markdown
-									children={value}
-									className={cn(
-										"markdown-content wmde-markdown wmde-markdown-color w-full h-full bg-transparent overflow-auto pb-12 px-4 pt-4",
-										dark ? "text-white" : "text-black"
-									)}
-									skipHtml={true}
-									remarkPlugins={[remarkAlert, gfm]}
-									rehypePlugins={[[rehypeExternalLinks, { target: "_blank" }], markdownRehypeRewriteLinks]}
-									allowElement={markdownAllowElement}
-									components={markdownComponents}
+								<CodeMirror
+									ref={codeMirrorRef}
+									value={value}
+									onChange={onChange}
+									height={height + "px"}
+									maxHeight={height + "px"}
+									minHeight={height + "px"}
+									width="100%"
+									maxWidth="100%"
+									minWidth="100%"
+									theme={editorTheme}
+									extensions={extensions}
+									indentWithTab={indentWithTab}
+									editable={editable}
+									autoFocus={autoFocus}
+									readOnly={readOnly}
+									placeholder={placeholder}
+									onBlur={onBlur}
+									onCreateEditor={onCreateEditor}
+									basicSetup={{
+										lineNumbers: type === "code",
+										searchKeymap: type === "code",
+										tabSize: 4,
+										highlightActiveLine: type === "code",
+										highlightActiveLineGutter: type === "code",
+										foldGutter: type === "code",
+										foldKeymap: type === "code",
+										syntaxHighlighting: type === "code"
+									}}
+									style={{
+										height,
+										minHeight: height,
+										maxHeight: height,
+										width: "100%",
+										minWidth: "100%",
+										maxWidth: "100%"
+									}}
 								/>
 							</ResizablePanel>
-						</>
+							{showMarkdownPreview && viewMode === "split" && (
+								<>
+									<ResizableHandle
+										className="bg-transparent w-0"
+										withHandle={true}
+									/>
+									<ResizablePanel
+										defaultSize={resizablePanelSizes[1]}
+										minSize={20}
+										maxSize={80}
+										order={2}
+										className="border-l"
+									>
+										<Markdown
+											children={value}
+											className={cn(
+												"markdown-content wmde-markdown wmde-markdown-color w-full h-full bg-transparent overflow-auto pb-12 px-4 pt-4",
+												dark ? "text-white" : "text-black"
+											)}
+											skipHtml={true}
+											remarkPlugins={[remarkAlert, gfm]}
+											rehypePlugins={[[rehypeExternalLinks, { target: "_blank" }], markdownRehypeRewriteLinks]}
+											allowElement={markdownAllowElement}
+											components={markdownComponents}
+										/>
+									</ResizablePanel>
+								</>
+							)}
+						</ResizablePanelGroup>
 					)}
-				</ResizablePanelGroup>
+				</div>
 			</div>
 		)
 	}

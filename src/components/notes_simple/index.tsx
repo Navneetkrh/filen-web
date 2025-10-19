@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react"
 import { Button } from "@/components/ui/button"
-import { TextEditor } from "@/components/textEditor"
+import { NovelEditor } from "@/components/novelEditor"
 import worker from "@/lib/worker"
 import useSDKConfig from "@/hooks/useSDKConfig"
 import { useQuery } from "@tanstack/react-query"
@@ -44,32 +44,7 @@ function getAttachmentKey(item: NoteAttachment): string {
 	return `${item.uuid}/${encodeURIComponent(item.name)}`
 }
 
-function parseAttachmentHref(href?: string | null): { key: string; name: string } | null {
-	if (!href || !href.startsWith("attachment:")) {
-		return null
-	}
 
-	const rest = href.slice("attachment:".length)
-	const [uuid, ...nameParts] = rest.split("/")
-
-	if (!uuid || nameParts.length === 0) {
-		return null
-	}
-
-	const encodedName = nameParts.join("/")
-	try {
-		const decodedName = decodeURIComponent(encodedName)
-		return {
-			key: `${uuid}/${encodedName}`,
-			name: decodedName
-		}
-	} catch {
-		return {
-			key: `${uuid}/${encodedName}`,
-			name: encodedName
-		}
-	}
-}
 
 function formatBytes(bytes?: number | null): string {
 	if (bytes === undefined || bytes === null) {
@@ -528,82 +503,7 @@ export const NotesSimple = memo(() => {
 		setAttachmentUrls({ ...attachmentUrlsRef.current })
 	}, [attachments, content, fetchAttachmentPreview])
 
-	const attachmentMarkdownComponents = useMemo(() => {
-		return {
-			img(props: any) {
-				const { src, alt, className, ...rest } = props ?? {}
-				const parsed = parseAttachmentHref(typeof src === "string" ? src : undefined)
-
-				if (parsed) {
-					const data = attachmentUrls[parsed.key]
-
-					if (data) {
-						return (
-							<img
-								{...rest}
-								src={data.url}
-								alt={typeof alt === "string" ? alt : parsed.name}
-								className={cn(
-									"my-4 rounded-2xl border border-black/10 dark:border-white/10 shadow-sm",
-									typeof className === "string" ? className : undefined
-								)}
-							/>
-						)
-					}
-
-					return (
-						<div className="my-4 text-xs text-muted-foreground italic">
-							{parsed.name} attachment unavailable
-						</div>
-					)
-				}
-
-				return (
-					<img
-						{...rest}
-						src={typeof src === "string" ? src : ""}
-						alt={typeof alt === "string" ? alt : ""}
-						className={typeof className === "string" ? className : undefined}
-					/>
-				)
-			},
-			a(props: any) {
-				const { href, children, className, ...rest } = props ?? {}
-				const parsed = parseAttachmentHref(typeof href === "string" ? href : undefined)
-
-				if (parsed) {
-					const data = attachmentUrls[parsed.key]
-
-					if (data) {
-						return (
-							<a
-								{...rest}
-								href={data.url}
-								download={parsed.name}
-								target="_blank"
-								rel="noreferrer"
-								className={cn(
-									"inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-sm text-primary transition hover:bg-primary/20 dark:bg-primary/15 dark:hover:bg-primary/25",
-									typeof className === "string" ? className : undefined
-								)}
-							>
-								<Link2 size={14} />
-								<span>{children ?? parsed.name}</span>
-							</a>
-						)
-					}
-
-					return <span className="text-muted-foreground text-sm">{parsed.name}</span>
-				}
-
-				return (
-					<a {...rest} href={typeof href === "string" ? href : undefined} className={className}>
-						{children}
-					</a>
-				)
-			}
-		}
-	}, [attachmentUrls]) as Record<string, unknown>
+	// Note: Attachment rendering will be handled by Novel editor's built-in image support
 
 	const insertAttachment = useCallback(
 		(item: NoteAttachment) => {
@@ -744,17 +644,12 @@ export const NotesSimple = memo(() => {
 					<div className="flex-1 overflow-hidden">
 						{selectedNote ? (
 							<div className="h-full">
-								<TextEditor
+								<NovelEditor
 									value={content}
-									setValue={setContent}
-									fileName={NOTE_FILE_NAME}
+									onChange={onValueChange}
 									height={noteContentHeight}
-									onValueChange={onValueChange}
-									type="code"
-									readOnly={false}
-									placeholder="Write your note..."
-									showMarkdownPreview={true}
-									customMarkdownComponents={attachmentMarkdownComponents as any}
+									placeholder="Start writing your beautiful note..."
+									className="h-full"
 								/>
 							</div>
 						) : (
