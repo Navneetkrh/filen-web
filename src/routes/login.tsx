@@ -152,12 +152,9 @@ export function Login() {
 			}
 
 			navigate({
-				to: "/drive/$",
+				to: "/notes",
 				replace: true,
-				resetScroll: true,
-				params: {
-					_splat: getSDK().config.baseFolderUUID!
-				}
+				resetScroll: true
 			})
 		} catch (e) {
 			if (e instanceof APIError) {

@@ -192,7 +192,7 @@ export const MainContainer = memo(({ children }: { children: React.ReactNode }) 
 					order={2}
 					id="right-resizable-panel"
 				>
-					{!location.includes("/terminal") && !location.includes("/mounts") && <TopBar />}
+					{!location.includes("/terminal") && !location.includes("/mounts") && !location.includes("/notes") && <TopBar />}
 					<div className="flex grow">{children}</div>
 				</ResizablePanel>
 			</ResizablePanelGroup>
