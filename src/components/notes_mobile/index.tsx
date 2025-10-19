@@ -9,26 +9,21 @@ import {
     Notebook,
     Paperclip,
     Plus,
-    Trash2,
     Link2,
     Image as ImageIcon,
     FileText,
     Check,
     ArrowLeft,
-    Menu,
     MoreVertical,
-    Edit3,
     X
 } from "lucide-react"
-import { showInputDialog } from "@/components/dialogs/input"
 import useErrorToast from "@/hooks/useErrorToast"
 import useLoadingToast from "@/hooks/useLoadingToast"
-import { showConfirmDialog } from "@/components/dialogs/confirm"
 import useWindowSize from "@/hooks/useWindowSize"
 import type { DriveCloudItem } from "@/components/drive"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/providers/themeProvider"
-import useIsMobile from "@/hooks/useIsMobile"
+
 
 const NOTE_FILE_NAME = "note.md"
 const NOTES_ROOT_NAME = "Notes"
@@ -85,7 +80,7 @@ export const NotesMobile = memo(() => {
     const loadingToast = useLoadingToast()
     const windowSize = useWindowSize()
     const { dark } = useTheme()
-    const isMobile = useIsMobile()
+
     const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
     const loadingNoteRef = useRef<string | null>(null)
     const attachmentUrlsRef = useRef<Record<string, { url: string; mime: string }>>({})

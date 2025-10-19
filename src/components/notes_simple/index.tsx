@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react"
 import { Button } from "@/components/ui/button"
-import { NovelEditor } from "@/components/novelEditor"
+import { TiptapEditor } from "@/components/tiptapEditor"
 import worker from "@/lib/worker"
 import useSDKConfig from "@/hooks/useSDKConfig"
 import { useQuery } from "@tanstack/react-query"
@@ -513,12 +513,15 @@ export const NotesSimple = memo(() => {
 	const insertAttachment = useCallback(
 		(item: NoteAttachment) => {
 			const encodedName = encodeURIComponent(item.name)
+			const attachmentKey = `${item.uuid}/${encodedName}`
+
+			// For TiptapEditor, we'll insert HTML directly
 			const snippet = item.mime?.startsWith("image/")
-				? `![${item.name}](attachment:${item.uuid}/${encodedName})`
-				: `[${item.name}](attachment:${item.uuid}/${encodedName})`
-			const base = content.trimEnd()
-			const separator = base.length === 0 ? "" : "\n\n"
-			const nextValue = `${base}${separator}${snippet}\n`
+				? `<img src="attachment:${attachmentKey}" alt="${item.name}" />`
+				: `<a href="attachment:${attachmentKey}">${item.name}</a>`
+
+			const currentContent = content || ""
+			const nextValue = currentContent + (currentContent ? "<br><br>" : "") + snippet
 
 			onValueChange(nextValue)
 		},
@@ -526,6 +529,8 @@ export const NotesSimple = memo(() => {
 	)
 
 	const noteContentHeight = windowSize.height - DESKTOP_TOPBAR_HEIGHT - 80
+
+
 
 	return (
 		<div
@@ -649,12 +654,14 @@ export const NotesSimple = memo(() => {
 					<div className="flex-1 overflow-hidden">
 						{selectedNote ? (
 							<div className="h-full">
-								<NovelEditor
+								<TiptapEditor
 									value={content}
 									onChange={onValueChange}
-									height={noteContentHeight}
 									placeholder="Start writing your beautiful note..."
+									height={noteContentHeight}
 									className="h-full"
+									editable={true}
+									showToolbar={true}
 									attachmentUrls={attachmentUrls}
 								/>
 							</div>

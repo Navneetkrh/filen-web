@@ -11,8 +11,10 @@ import { TableHeader } from "@tiptap/extension-table-header"
 import { TableCell } from "@tiptap/extension-table-cell"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/providers/themeProvider"
+import useIsMobile from "@/hooks/useIsMobile"
 import { Attachment } from "./extensions/attachment"
 import Toolbar from "./toolbar"
+import MobileToolbar from "./mobileToolbar"
 import "./styles.css"
 
 export const TiptapEditor = memo(({
@@ -35,6 +37,7 @@ export const TiptapEditor = memo(({
     attachmentUrls?: Record<string, { url: string; mime: string }>
 }) => {
     const { dark } = useTheme()
+    const isMobile = useIsMobile()
 
     const editor = useEditor({
         extensions: [
@@ -119,7 +122,7 @@ export const TiptapEditor = memo(({
             )}
             style={{ height: height ? `${height}px` : 'auto' }}
         >
-            {showToolbar && <Toolbar editor={editor} />}
+            {showToolbar && (isMobile ? <MobileToolbar editor={editor} /> : <Toolbar editor={editor} />)}
             <div className="relative flex-1">
                 <EditorContent
                     editor={editor}

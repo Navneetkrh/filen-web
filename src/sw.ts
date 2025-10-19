@@ -80,7 +80,7 @@ registerRoute(
 )
 
 // Background sync for notes
-self.addEventListener('sync', (event) => {
+self.addEventListener('sync', (event: any) => {
   if (event.tag === 'background-sync-notes') {
     event.waitUntil(syncNotes())
   }
@@ -127,7 +127,7 @@ self.addEventListener('push', (event) => {
 
   const data = event.data.json()
   
-  const options: NotificationOptions = {
+  const options: any = {
     body: data.body,
     icon: '/android-chrome-192x192.png',
     badge: '/notification-favicon-32x32.png',
@@ -168,7 +168,8 @@ self.addEventListener('beforeinstallprompt', (event) => {
   event.preventDefault()
   
   // Stash the event so it can be triggered later
-  self.deferredPrompt = event
+  // Note: This would typically be handled in the main thread, not service worker
+  console.log('Install prompt event received in service worker')
 })
 
 // Skip waiting and claim clients immediately

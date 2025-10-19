@@ -144,3 +144,73 @@
 .tiptap-editor .ProseMirror s {
   @apply line-through;
 }
+
+/* Mobile-specific styles */
+@media (max-width: 768px) {
+  .tiptap-editor-container {
+    @apply text-base;
+  }
+
+  .tiptap-editor .ProseMirror {
+    @apply p-3 text-base leading-relaxed;
+    /* Improve touch scrolling */
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Better touch targets for mobile */
+  .tiptap-editor .ProseMirror a,
+  .tiptap-editor .ProseMirror button {
+    @apply min-h-[44px] min-w-[44px];
+  }
+
+  /* Adjust heading sizes for mobile */
+  .tiptap-editor .ProseMirror h1 {
+    @apply text-2xl;
+  }
+
+  .tiptap-editor .ProseMirror h2 {
+    @apply text-xl;
+  }
+
+  .tiptap-editor .ProseMirror h3 {
+    @apply text-lg;
+  }
+
+  /* Better spacing for mobile */
+  .tiptap-editor .ProseMirror p {
+    @apply my-4;
+  }
+
+  .tiptap-editor .ProseMirror ul,
+  .tiptap-editor .ProseMirror ol {
+    @apply my-4;
+  }
+
+  /* Improve table display on mobile */
+  .tiptap-editor .ProseMirror table {
+    @apply text-sm;
+  }
+
+  .tiptap-editor .ProseMirror th,
+  .tiptap-editor .ProseMirror td {
+    @apply px-2 py-1;
+  }
+
+  /* Better image handling on mobile */
+  .tiptap-editor .ProseMirror img {
+    @apply w-full h-auto;
+  }
+
+  /* Improve code blocks on mobile */
+  .tiptap-editor .ProseMirror pre {
+    @apply text-sm p-3;
+    /* Enable horizontal scrolling for code */
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Better blockquote on mobile */
+  .tiptap-editor .ProseMirror blockquote {
+    @apply pl-3 text-sm;
+  }
+}

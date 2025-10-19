@@ -200,6 +200,7 @@ export const Root = memo(() => {
 								<PreviewDialog />
 								<InputDialog />
 								<ConfirmDialog />
+								<PWAInstallPrompt />
 							</CookieConsent>
 						</>
 					)}
