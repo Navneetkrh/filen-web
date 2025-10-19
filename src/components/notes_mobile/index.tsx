@@ -404,62 +404,105 @@ export const NotesMobile = memo(() => {
     if (currentView === "list") {
         return (
             <div className={cn(
-                "flex flex-col w-full h-full",
-                dark ? "bg-[#111315]" : "bg-[#f5f3ef]"
+                "flex flex-col w-full h-full safe-area-top safe-area-bottom",
+                dark ? "bg-[#000000]" : "bg-[#f2f2f7]"
             )}>
-                {/* Mobile Header */}
+                {/* iOS-style Header */}
                 <div className={cn(
-                    "flex items-center justify-between p-4 border-b",
-                    dark ? "border-white/10 bg-[#18181b]" : "border-black/10 bg-white"
+                    "flex items-center justify-center px-4 py-3 border-b backdrop-blur-xl",
+                    dark
+                        ? "border-white/10 bg-[#1c1c1e]/95"
+                        : "border-black/10 bg-white/95"
                 )}>
-                    <h1 className="text-xl font-bold">Notes</h1>
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-10 w-10 rounded-full bg-primary/10 p-0 text-primary hover:bg-primary/20"
-                        onClick={createNote}
-                    >
-                        <Plus size={20} />
-                    </Button>
+                    <h1 className={cn(
+                        "text-lg font-semibold",
+                        dark ? "text-white" : "text-black"
+                    )}>Notes</h1>
                 </div>
 
                 {/* Notes List */}
-                <div className="flex-1 overflow-auto p-4">
+                <div className="flex-1 overflow-auto">
                     {notesQuery.isLoading ? (
                         <div className="flex h-full items-center justify-center">
-                            <Loader className="animate-spin" size={32} />
+                            <Loader className="animate-spin text-[#007AFF]" size={24} />
                         </div>
                     ) : sortedNotes.length === 0 ? (
-                        <div className="flex h-full flex-col items-center justify-center gap-4 text-center text-muted-foreground">
-                            <Notebook size={64} />
+                        <div className="flex h-full flex-col items-center justify-center gap-6 text-center px-8">
+                            <div className={cn(
+                                "w-20 h-20 rounded-full flex items-center justify-center",
+                                dark ? "bg-[#1c1c1e]" : "bg-white"
+                            )}>
+                                <Notebook size={32} className="text-[#007AFF]" />
+                            </div>
                             <div>
-                                <p className="text-lg font-medium">No notes yet</p>
-                                <p className="text-sm">Tap the + button to create your first note</p>
+                                <p className={cn(
+                                    "text-xl font-semibold mb-2",
+                                    dark ? "text-white" : "text-black"
+                                )}>
+                                    No Notes
+                                </p>
+                                <p className="text-[#8e8e93] text-base leading-relaxed">
+                                    Create your first note by tapping the + button above
+                                </p>
                             </div>
                         </div>
                     ) : (
-                        <div className="space-y-3">
-                            {sortedNotes.map(note => (
+                        <div className="px-4 py-2">
+                            {sortedNotes.map((note, index) => (
                                 <button
                                     key={note.uuid}
                                     className={cn(
-                                        "w-full p-4 text-left rounded-xl border transition-all duration-200 active:scale-[0.98]",
-                                        dark
-                                            ? "border-white/10 bg-[#1c1c1e] hover:bg-[#2c2c2e]"
-                                            : "border-black/10 bg-white hover:bg-gray-50 shadow-sm"
+                                        "w-full text-left transition-all duration-200 active:scale-[0.98]",
+                                        index === 0 ? "pt-2" : "",
+                                        index === sortedNotes.length - 1 ? "pb-2" : ""
                                     )}
                                     onClick={() => handleSelect(note)}
                                 >
-                                    <p className="font-semibold text-base leading-tight line-clamp-2 break-all mb-2">
-                                        {note.name || "Untitled"}
-                                    </p>
-                                    <p className="text-sm text-muted-foreground">
-                                        {note.lastModified ? new Date(note.lastModified).toLocaleDateString() : "Just now"}
-                                    </p>
+                                    <div className={cn(
+                                        "p-4 rounded-xl mb-2 border",
+                                        dark
+                                            ? "border-[#38383a] bg-[#1c1c1e] active:bg-[#2c2c2e]"
+                                            : "border-[#d1d1d6] bg-white active:bg-[#f2f2f7] shadow-sm"
+                                    )}>
+                                        <p className={cn(
+                                            "font-medium text-base leading-tight line-clamp-2 mb-2",
+                                            dark ? "text-white" : "text-black"
+                                        )}>
+                                            {note.name || "Untitled"}
+                                        </p>
+                                        <div className="flex items-center justify-between">
+                                            <p className="text-[#8e8e93] text-sm">
+                                                {note.lastModified
+                                                    ? new Date(note.lastModified).toLocaleDateString('en-US', {
+                                                        month: 'short',
+                                                        day: 'numeric',
+                                                        year: new Date(note.lastModified).getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined
+                                                    })
+                                                    : "Just now"
+                                                }
+                                            </p>
+                                            <div className="w-2 h-2 rounded-full bg-[#8e8e93] opacity-60" />
+                                        </div>
+                                    </div>
                                 </button>
                             ))}
                         </div>
                     )}
+                </div>
+
+                {/* Floating Plus Button */}
+                <div className="fixed bottom-8 right-6 z-50">
+                    <Button
+                        onClick={createNote}
+                        className={cn(
+                            "h-14 w-14 rounded-full shadow-lg transition-all duration-300 active:scale-95",
+                            "bg-[#007AFF] hover:bg-[#0056CC]",
+                            "hover:shadow-xl hover:scale-105",
+                            "border-2 border-white/20"
+                        )}
+                    >
+                        <Plus size={24} strokeWidth={2.5} className="text-white" />
+                    </Button>
                 </div>
             </div>
         )
@@ -468,33 +511,40 @@ export const NotesMobile = memo(() => {
     // Mobile Editor View
     return (
         <div className={cn(
-            "flex flex-col w-full h-full",
-            dark ? "bg-[#111315]" : "bg-[#f5f3ef]"
+            "flex flex-col w-full h-full safe-area-top safe-area-bottom",
+            dark ? "bg-[#000000]" : "bg-[#f2f2f7]"
         )}>
-            {/* Mobile Editor Header */}
+            {/* iOS-style Editor Header */}
             <div className={cn(
-                "flex items-center justify-between p-4 border-b",
-                dark ? "border-white/10 bg-[#18181b]" : "border-black/10 bg-white"
+                "flex items-center justify-between px-4 py-3 border-b backdrop-blur-xl",
+                dark
+                    ? "border-white/10 bg-[#1c1c1e]/95"
+                    : "border-black/10 bg-white/95"
             )}>
                 <div className="flex items-center gap-3">
                     <Button
                         variant="ghost"
                         size="sm"
-                        className="h-8 w-8 p-0"
+                        className={cn(
+                            "h-8 w-8 p-0 transition-all duration-200 active:scale-90",
+                            dark
+                                ? "text-[#007AFF] hover:bg-[#007AFF]/10"
+                                : "text-[#007AFF] hover:bg-[#007AFF]/10"
+                        )}
                         onClick={() => setCurrentView("list")}
                     >
-                        <ArrowLeft size={18} />
+                        <ArrowLeft size={18} strokeWidth={2.5} />
                     </Button>
                     <div className="flex items-center gap-2">
                         {saving && (
-                            <div className="flex items-center gap-2 text-blue-500">
+                            <div className="flex items-center gap-2 text-[#007AFF]">
                                 <Loader className="animate-spin" size={14} />
-                                <span className="text-xs font-medium">Saving...</span>
+                                <span className="text-xs font-medium">Saving</span>
                             </div>
                         )}
                         {!saving && saved && (
-                            <div className="flex items-center gap-2 text-green-500">
-                                <Check size={14} />
+                            <div className="flex items-center gap-2 text-[#34C759]">
+                                <Check size={14} strokeWidth={2.5} />
                                 <span className="text-xs font-medium">Saved</span>
                             </div>
                         )}
@@ -504,28 +554,43 @@ export const NotesMobile = memo(() => {
                     <Button
                         variant="ghost"
                         size="sm"
-                        className="h-8 w-8 p-0"
+                        className={cn(
+                            "h-8 w-8 p-0 transition-all duration-200 active:scale-90",
+                            dark
+                                ? "text-[#007AFF] hover:bg-[#007AFF]/10"
+                                : "text-[#007AFF] hover:bg-[#007AFF]/10"
+                        )}
                         onClick={() => setShowAttachments(!showAttachments)}
                     >
-                        <Paperclip size={16} />
+                        <Paperclip size={16} strokeWidth={2.5} />
                     </Button>
                     <Button
                         variant="ghost"
                         size="sm"
-                        className="h-8 w-8 p-0"
+                        className={cn(
+                            "h-8 w-8 p-0 transition-all duration-200 active:scale-90",
+                            dark
+                                ? "text-[#007AFF] hover:bg-[#007AFF]/10"
+                                : "text-[#007AFF] hover:bg-[#007AFF]/10"
+                        )}
                     >
-                        <MoreVertical size={16} />
+                        <MoreVertical size={16} strokeWidth={2.5} />
                     </Button>
                 </div>
             </div>
 
-            {/* Note Title */}
+            {/* Note Title Bar */}
             {selectedNote && (
                 <div className={cn(
-                    "px-4 py-2 border-b",
-                    dark ? "border-white/10" : "border-black/10"
+                    "px-4 py-3 border-b",
+                    dark ? "border-white/10 bg-[#1c1c1e]" : "border-black/10 bg-white"
                 )}>
-                    <h2 className="text-lg font-semibold truncate">{selectedNote.name}</h2>
+                    <h2 className={cn(
+                        "text-lg font-semibold truncate",
+                        dark ? "text-white" : "text-black"
+                    )}>
+                        {selectedNote.name}
+                    </h2>
                 </div>
             )}
 
@@ -548,32 +613,53 @@ export const NotesMobile = memo(() => {
                     </div>
                 )}
 
-                {/* Attachments Overlay */}
+                {/* iOS-style Attachments Overlay */}
                 {showAttachments && (
                     <div className={cn(
-                        "absolute inset-0 z-50",
-                        dark ? "bg-[#111315]/95" : "bg-white/95"
+                        "absolute inset-0 z-50 backdrop-blur-xl",
+                        dark ? "bg-[#000000]/95" : "bg-[#f2f2f7]/95"
                     )}>
                         <div className="flex flex-col h-full">
                             <div className={cn(
-                                "flex items-center justify-between p-4 border-b",
+                                "flex items-center justify-between px-4 py-3 border-b",
                                 dark ? "border-white/10" : "border-black/10"
                             )}>
+                                <div className="w-16" />
                                 <h3 className="text-lg font-semibold">Attachments</h3>
                                 <Button
                                     variant="ghost"
                                     size="sm"
-                                    className="h-8 w-8 p-0"
+                                    className={cn(
+                                        "h-8 w-8 p-0 transition-all duration-200 active:scale-90",
+                                        dark
+                                            ? "text-[#007AFF] hover:bg-[#007AFF]/10"
+                                            : "text-[#007AFF] hover:bg-[#007AFF]/10"
+                                    )}
                                     onClick={() => setShowAttachments(false)}
                                 >
-                                    <X size={18} />
+                                    <X size={18} strokeWidth={2.5} />
                                 </Button>
                             </div>
-                            <div className="flex-1 overflow-auto p-4">
+                            <div className="flex-1 overflow-auto">
                                 {attachments.length === 0 ? (
-                                    <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
-                                        <Paperclip size={48} />
-                                        <p className="mt-4">No attachments</p>
+                                    <div className="flex flex-col items-center justify-center h-full text-center px-8">
+                                        <div className={cn(
+                                            "w-20 h-20 rounded-full flex items-center justify-center mb-6",
+                                            dark ? "bg-[#1c1c1e]" : "bg-white"
+                                        )}>
+                                            <Paperclip size={32} className="text-[#8e8e93]" />
+                                        </div>
+                                        <div className="mb-8">
+                                            <p className={cn(
+                                                "text-xl font-semibold mb-2",
+                                                dark ? "text-white" : "text-black"
+                                            )}>
+                                                No Attachments
+                                            </p>
+                                            <p className="text-[#8e8e93] text-base leading-relaxed">
+                                                Add files to include them in your note
+                                            </p>
+                                        </div>
                                         <input
                                             id="mobile-attachments-input"
                                             type="file"
@@ -582,16 +668,18 @@ export const NotesMobile = memo(() => {
                                             onChange={onAttachmentInput}
                                         />
                                         <Button
-                                            variant="outline"
-                                            className="mt-4"
+                                            className={cn(
+                                                "bg-[#007AFF] hover:bg-[#0056CC] text-white px-6 py-3 rounded-xl font-medium transition-all duration-200 active:scale-95",
+                                                "shadow-lg"
+                                            )}
                                             onClick={() => document.getElementById("mobile-attachments-input")?.click()}
                                         >
-                                            <Plus size={16} className="mr-2" />
+                                            <Plus size={18} className="mr-2" strokeWidth={2.5} />
                                             Add Files
                                         </Button>
                                     </div>
                                 ) : (
-                                    <div className="space-y-3">
+                                    <div className="px-4 py-2">
                                         {attachments.map((item: NoteAttachment) => {
                                             const key = getAttachmentKey(item)
                                             const preview = attachmentUrls[key]
@@ -601,36 +689,56 @@ export const NotesMobile = memo(() => {
                                                 <div
                                                     key={item.uuid}
                                                     className={cn(
-                                                        "p-3 rounded-lg border",
-                                                        dark ? "border-white/10 bg-[#1c1c1e]" : "border-black/10 bg-white"
+                                                        "mb-3 rounded-xl border overflow-hidden transition-all duration-200 active:scale-[0.98]",
+                                                        dark
+                                                            ? "border-[#38383a] bg-[#1c1c1e]"
+                                                            : "border-[#d1d1d6] bg-white shadow-sm"
                                                     )}
                                                 >
                                                     {isImage && preview ? (
                                                         <img
                                                             src={preview.url}
                                                             alt={item.name}
-                                                            className="w-full h-32 object-cover rounded-lg mb-3"
+                                                            className="w-full h-40 object-cover"
                                                         />
                                                     ) : (
-                                                        <div className="flex items-center justify-center h-20 bg-muted/40 rounded-lg mb-3">
-                                                            {isImage ? <ImageIcon size={24} /> : <FileText size={24} />}
+                                                        <div className={cn(
+                                                            "flex items-center justify-center h-24",
+                                                            dark ? "bg-[#2c2c2e]" : "bg-[#f2f2f7]"
+                                                        )}>
+                                                            {isImage ?
+                                                                <ImageIcon size={32} className="text-[#8e8e93]" /> :
+                                                                <FileText size={32} className="text-[#8e8e93]" />
+                                                            }
                                                         </div>
                                                     )}
-                                                    <div className="flex items-center justify-between">
-                                                        <div className="flex-1 min-w-0">
-                                                            <p className="font-medium truncate">{item.name}</p>
-                                                            <p className="text-sm text-muted-foreground">
-                                                                {formatBytes(item.size)}
-                                                            </p>
+                                                    <div className="p-4">
+                                                        <div className="flex items-center justify-between">
+                                                            <div className="flex-1 min-w-0">
+                                                                <p className={cn(
+                                                                    "font-medium truncate mb-1",
+                                                                    dark ? "text-white" : "text-black"
+                                                                )}>
+                                                                    {item.name}
+                                                                </p>
+                                                                <p className="text-[#8e8e93] text-sm">
+                                                                    {formatBytes(item.size)}
+                                                                </p>
+                                                            </div>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                className={cn(
+                                                                    "h-8 w-8 p-0 ml-3 transition-all duration-200 active:scale-90",
+                                                                    dark
+                                                                        ? "text-[#007AFF] hover:bg-[#007AFF]/10"
+                                                                        : "text-[#007AFF] hover:bg-[#007AFF]/10"
+                                                                )}
+                                                                onClick={() => insertAttachment(item)}
+                                                            >
+                                                                <Link2 size={16} strokeWidth={2.5} />
+                                                            </Button>
                                                         </div>
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            className="ml-2"
-                                                            onClick={() => insertAttachment(item)}
-                                                        >
-                                                            <Link2 size={16} />
-                                                        </Button>
                                                     </div>
                                                 </div>
                                             )
@@ -644,10 +752,15 @@ export const NotesMobile = memo(() => {
                                         />
                                         <Button
                                             variant="outline"
-                                            className="w-full"
+                                            className={cn(
+                                                "w-full py-3 rounded-xl font-medium transition-all duration-200 active:scale-95 mb-4",
+                                                dark
+                                                    ? "border-[#38383a] bg-[#1c1c1e] text-[#007AFF] hover:bg-[#007AFF]/10"
+                                                    : "border-[#d1d1d6] bg-white text-[#007AFF] hover:bg-[#007AFF]/10"
+                                            )}
                                             onClick={() => document.getElementById("mobile-attachments-input-2")?.click()}
                                         >
-                                            <Plus size={16} className="mr-2" />
+                                            <Plus size={18} className="mr-2" strokeWidth={2.5} />
                                             Add More Files
                                         </Button>
                                     </div>
