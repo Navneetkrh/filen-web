@@ -21,3 +21,6 @@ interface ViteHotContext {
 // Allow for virtual module imports
 // https://vitejs.dev/guide/api-plugin.html#virtual-modules-convention
 declare module "virtual:*"
+
+// CSS imports (e.g., from libraries)
+declare module "*.css"

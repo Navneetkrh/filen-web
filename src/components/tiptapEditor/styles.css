@@ -155,6 +155,23 @@
   @apply w-full h-full object-cover;
 }
 
+/* Block-style attachment (full-width image embed, e.g. Excalidraw) */
+.tiptap-editor .ProseMirror .note-attachment-block {
+  @apply block w-full my-4;
+}
+
+.tiptap-editor .ProseMirror .note-attachment-block-media {
+  @apply block w-full overflow-hidden rounded-lg border border-border bg-background/60;
+}
+
+.tiptap-editor .ProseMirror .note-attachment-block-image {
+  @apply w-full h-auto object-contain bg-background;
+}
+
+.tiptap-editor .ProseMirror .note-attachment-block-caption {
+  @apply block text-xs text-muted-foreground mt-2;
+}
+
 .tiptap-editor .ProseMirror .note-attachment-chip .note-attachment-icon {
   @apply inline-flex items-center justify-center w-6 h-6 rounded-full bg-muted-foreground/15 text-muted-foreground text-[0.7rem];
 }

@@ -5,7 +5,7 @@ import { TiptapEditor } from "@/components/tiptapEditor"
 import worker from "@/lib/worker"
 import useSDKConfig from "@/hooks/useSDKConfig"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Loader, Loader2, Notebook, Paperclip, Plus, Trash2, Link2, Download, Check } from "lucide-react"
+import { Loader, Loader2, Notebook, Paperclip, Plus, Trash2, Link2, Download, Check, PenTool } from "lucide-react"
 import { showInputDialog } from "@/components/dialogs/input"
 import useErrorToast from "@/hooks/useErrorToast"
 import useLoadingToast from "@/hooks/useLoadingToast"
@@ -19,6 +19,7 @@ import { fileNameToSVGIcon } from "@/assets/fileExtensionIcons"
 import { fileNameToThumbnailType } from "@/components/dialogs/previewDialog/utils"
 import { generateThumbnail } from "@/lib/worker/proxy"
 import eventEmitter from "@/lib/eventEmitter"
+import ExcalidrawInline from "@/components/excalidraw/inline"
 
 const NOTE_FILE_NAME = "note.md"
 const NOTES_ROOT_NAME = "Notes"
@@ -120,6 +121,8 @@ export const NotesSimple = memo(() => {
 	const [loadingNoteId, setLoadingNoteId] = useState<string | null>(null)
 	const [attachmentPreviews, setAttachmentPreviews] = useState<Record<string, string | null>>({})
 	const [downloadingAttachments, setDownloadingAttachments] = useState<Record<string, boolean>>({})
+	const [sketchFile, setSketchFile] = useState<NoteAttachment | null>(null)
+	const [sketchMode, setSketchMode] = useState<boolean>(false)
 
 	const queryClient = useQueryClient()
 
@@ -217,9 +220,12 @@ export const NotesSimple = memo(() => {
 
 			try {
 				const items = (await worker.listDirectory({ uuid: note.uuid })) as DriveCloudItem[]
-				const fileItems = items.filter(isNoteAttachment)
-				const currentNoteFile = fileItems.find(item => item.name.toLowerCase() === NOTE_FILE_NAME)
-				const otherFiles = fileItems.filter(item => item.uuid !== currentNoteFile?.uuid)
+					const fileItems = items.filter(isNoteAttachment)
+					const currentNoteFile = fileItems.find(item => item.name.toLowerCase() === NOTE_FILE_NAME)
+					const otherFiles = fileItems.filter(item => item.uuid !== currentNoteFile?.uuid)
+					const sketch = fileItems
+						.filter(item => item.name.toLowerCase().endsWith('.excalidraw'))
+						.sort((a, b) => (b.lastModified ?? 0) - (a.lastModified ?? 0))[0] as NoteAttachment | undefined
 
 				let text = ""
 
@@ -238,7 +244,8 @@ export const NotesSimple = memo(() => {
 				if (!options?.skipContent) {
 					setContent(text)
 				}
-				setAttachments(otherFiles)
+					setAttachments(otherFiles)
+					setSketchFile(sketch ?? null)
 			} catch (e) {
 				console.error(e)
 
@@ -906,6 +913,16 @@ export const NotesSimple = memo(() => {
 								variant="ghost"
 								size="sm"
 								className="h-8 rounded-lg border border-white/20 px-3 text-xs"
+								onClick={() => setSketchMode(prev => !prev)}
+								disabled={!selectedNote}
+								title="Sketch"
+							>
+								<PenTool size={14} />
+							</Button>
+							<Button
+								variant="ghost"
+								size="sm"
+								className="h-8 rounded-lg border border-white/20 px-3 text-xs"
 								onClick={renameNote}
 								disabled={!selectedNote}
 							>
@@ -935,26 +952,38 @@ export const NotesSimple = memo(() => {
 										<Loader2 className="animate-spin" />
 									</div>
 								)}
-								<TiptapEditor
-									value={content}
-									onChange={onValueChange}
-									placeholder="Start writing your beautiful note..."
-									height={noteContentHeight}
-									className="h-full"
-									editable={loadingNoteId !== selectedNote.uuid}
-									showToolbar={true}
-									attachmentMap={attachmentMetadata}
-									onAttachmentClick={handleAttachmentChipClick}
-									onFilesDropped={(files, editorInstance, dropPosition) => {
-										void handleEditorFiles(files, editorInstance, dropPosition ?? null)
-									}}
-									onFilesPasted={(files, editorInstance) => {
-										void handleEditorFiles(files, editorInstance)
-									}}
-									onManualSave={onManualSave}
-									saving={saving}
-									saved={saved}
-								/>
+									{sketchMode ? (
+										<ExcalidrawInline
+											parentUUID={selectedNote.uuid}
+											file={sketchFile}
+											height={noteContentHeight}
+											onSaved={(f: any) => {
+												setSketchFile(f)
+												void loadNote(selectedNote, { skipContent: true })
+											}}
+										/>
+									) : (
+										<TiptapEditor
+											value={content}
+											onChange={onValueChange}
+											placeholder="Start writing your beautiful note..."
+											height={noteContentHeight}
+											className="h-full"
+											editable={loadingNoteId !== selectedNote.uuid}
+											showToolbar={true}
+											attachmentMap={attachmentMetadata}
+											onAttachmentClick={handleAttachmentChipClick}
+											onFilesDropped={(files, editorInstance, dropPosition) => {
+												void handleEditorFiles(files, editorInstance, dropPosition ?? null)
+											}}
+											onFilesPasted={(files, editorInstance) => {
+												void handleEditorFiles(files, editorInstance)
+											}}
+											onManualSave={onManualSave}
+											saving={saving}
+											saved={saved}
+										/>
+									)}
 							</div>
 						) : (
 							<div className="flex h-full items-center justify-center text-muted-foreground">

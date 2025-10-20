@@ -17,7 +17,8 @@ import {
     MoreVertical,
     X,
     Download,
-    Trash2
+    Trash2,
+    PenTool
 } from "lucide-react"
 import useErrorToast from "@/hooks/useErrorToast"
 import useLoadingToast from "@/hooks/useLoadingToast"
@@ -31,6 +32,7 @@ import { fileNameToThumbnailType } from "@/components/dialogs/previewDialog/util
 import { generateThumbnail } from "@/lib/worker/proxy"
 import { showConfirmDialog } from "@/components/dialogs/confirm"
 import eventEmitter from "@/lib/eventEmitter"
+import ExcalidrawInline from "@/components/excalidraw/inline"
 
 
 const NOTE_FILE_NAME = "note.md"
@@ -130,8 +132,9 @@ export const NotesMobile = memo(() => {
     const [loadingNoteId, setLoadingNoteId] = useState<string | null>(null)
     const [attachmentPreviews, setAttachmentPreviews] = useState<Record<string, string | null>>({})
     const [downloadingAttachments, setDownloadingAttachments] = useState<Record<string, boolean>>({})
-    const [currentView, setCurrentView] = useState<"list" | "editor" | "attachments">("list")
+    const [currentView, setCurrentView] = useState<"list" | "editor" | "attachments" | "sketch">("list")
     const [showAttachments, setShowAttachments] = useState<boolean>(false)
+    const [sketchFile, setSketchFile] = useState<NoteAttachment | null>(null)
 
     const queryClient = useQueryClient()
     const attachmentMetadata = useMemo(() => {
@@ -205,6 +208,9 @@ export const NotesMobile = memo(() => {
                 const fileItems = items.filter(isNoteAttachment)
                 const currentNoteFile = fileItems.find(item => item.name.toLowerCase() === NOTE_FILE_NAME)
                 const otherFiles = fileItems.filter(item => item.uuid !== currentNoteFile?.uuid)
+                const sketch = fileItems
+                    .filter(item => item.name.toLowerCase().endsWith('.excalidraw'))
+                    .sort((a, b) => (b.lastModified ?? 0) - (a.lastModified ?? 0))[0] as NoteAttachment | undefined
 
                 let text = ""
 
@@ -224,6 +230,7 @@ export const NotesMobile = memo(() => {
                     setContent(text)
                 }
                 setAttachments(otherFiles)
+                setSketchFile(sketch ?? null)
             } catch (e) {
                 console.error(e)
 
@@ -247,14 +254,14 @@ export const NotesMobile = memo(() => {
     )
 
     useEffect(() => {
-        const activeUUIDs = new Set(attachments.map(item => item.uuid))
+        const activeKeys = new Set(attachments.map(item => getAttachmentKey(item)))
 
         setAttachmentPreviews(prev => {
             let changed = false
             const next = { ...prev }
 
             for (const key of Object.keys(next)) {
-                if (!activeUUIDs.has(key)) {
+                if (!activeKeys.has(key)) {
                     delete next[key]
                     changed = true
                 }
@@ -264,7 +271,7 @@ export const NotesMobile = memo(() => {
         })
 
         attachments.forEach(item => {
-            const key = item.uuid
+            const key = getAttachmentKey(item)
             const thumbnailType = fileNameToThumbnailType(item.name)
             const shouldSkipThumbnail =
                 item.size > THUMBNAIL_MAX_FETCH_SIZE || thumbnailType === "none"
@@ -626,7 +633,6 @@ export const NotesMobile = memo(() => {
             if (!attachment) {
                 return
             }
-
             eventEmitter.emit("openPreviewModal", { item: attachment })
         },
         [attachments]
@@ -669,6 +675,11 @@ export const NotesMobile = memo(() => {
         },
         [content, onValueChange]
     )
+
+    const onOpenSketch = useCallback(() => {
+        if (!selectedNote) return
+        setCurrentView(prev => (prev === "sketch" ? "editor" : "sketch"))
+    }, [selectedNote])
 
     // Mobile Notes List View
     if (currentView === "list") {
@@ -847,6 +858,21 @@ export const NotesMobile = memo(() => {
                                 ? "text-[#007AFF] hover:bg-[#007AFF]/10"
                                 : "text-[#007AFF] hover:bg-[#007AFF]/10"
                         )}
+                        onClick={onOpenSketch}
+                        disabled={!selectedNote}
+                        title="New sketch"
+                    >
+                        <PenTool size={16} strokeWidth={2.5} />
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className={cn(
+                            "h-8 w-8 p-0 transition-all duration-200 active:scale-90",
+                            dark
+                                ? "text-[#007AFF] hover:bg-[#007AFF]/10"
+                                : "text-[#007AFF] hover:bg-[#007AFF]/10"
+                        )}
                         onClick={() => setShowAttachments(!showAttachments)}
                     >
                         <Paperclip size={16} strokeWidth={2.5} />
@@ -909,26 +935,39 @@ export const NotesMobile = memo(() => {
                                 <Loader2 className="animate-spin" />
                             </div>
                         )}
-                        <TiptapEditor
-                            value={content}
-                            onChange={onValueChange}
-                            placeholder="Start writing your note..."
-                            height={windowSize.height - 140}
-                            className="h-full"
-                            editable={loadingNoteId !== selectedNote.uuid}
-                            showToolbar={true}
-                            attachmentMap={attachmentMetadata}
-                            onAttachmentClick={handleAttachmentChipClick}
-                            onFilesDropped={(files, editorInstance, dropPosition) => {
-                                void handleEditorFiles(files, editorInstance, dropPosition ?? null)
-                            }}
-                            onFilesPasted={(files, editorInstance) => {
-                                void handleEditorFiles(files, editorInstance)
-                            }}
-                            onManualSave={onManualSave}
-                            saving={saving}
-                            saved={saved}
-                        />
+                        {currentView === "sketch" ? (
+                            <ExcalidrawInline
+                                parentUUID={selectedNote.uuid}
+                                file={sketchFile}
+                                height={windowSize.height - 140}
+                                onSaved={(f: any) => {
+                                    setSketchFile(f)
+                                    // Refresh list silently
+                                    void loadNote(selectedNote, { skipContent: true })
+                                }}
+                            />
+                        ) : (
+                            <TiptapEditor
+                                value={content}
+                                onChange={onValueChange}
+                                placeholder="Start writing your note..."
+                                height={windowSize.height - 140}
+                                className="h-full"
+                                editable={loadingNoteId !== selectedNote.uuid}
+                                showToolbar={true}
+                                attachmentMap={attachmentMetadata}
+                                onAttachmentClick={handleAttachmentChipClick}
+                                onFilesDropped={(files, editorInstance, dropPosition) => {
+                                    void handleEditorFiles(files, editorInstance, dropPosition ?? null)
+                                }}
+                                onFilesPasted={(files, editorInstance) => {
+                                    void handleEditorFiles(files, editorInstance)
+                                }}
+                                onManualSave={onManualSave}
+                                saving={saving}
+                                saved={saved}
+                            />
+                        )}
                     </div>
                 ) : (
                     <div className="flex h-full items-center justify-center text-muted-foreground">
@@ -1004,7 +1043,7 @@ export const NotesMobile = memo(() => {
                                 ) : (
                                     <div className="px-4 py-2">
                                         {attachments.map((item: NoteAttachment) => {
-                                            const preview = attachmentPreviews[item.uuid]
+                                            const preview = attachmentPreviews[getAttachmentKey(item)]
                                             const downloading = Boolean(downloadingAttachments[item.uuid])
                                             const icon = fileNameToSVGIcon(item.name)
 
@@ -1129,6 +1168,8 @@ export const NotesMobile = memo(() => {
                         </div>
                     </div>
                 )}
+
+                {/* No modal editor for sketch in this UX */}
             </div>
         </div>
     )

@@ -10,8 +10,8 @@ export interface AttachmentMeta {
 }
 
 export interface AttachmentOptions {
-	HTMLAttributes: Record<string, any>
-	attachments: Record<string, AttachmentMeta>
+    HTMLAttributes: Record<string, any>
+    attachments: Record<string, AttachmentMeta>
 }
 
 function mergeClassNames(...classes: Array<string | null | undefined>): string | undefined {
@@ -110,6 +110,32 @@ export const Attachment = Node.create<AttachmentOptions>({
 					}
 				}
 			},
+			attachmentDisplay: {
+				default: null,
+				parseHTML: element => element.getAttribute("data-attachment-display"),
+				renderHTML: attributes => {
+					if (!attributes.attachmentDisplay) {
+						return {}
+					}
+
+					return {
+						"data-attachment-display": attributes.attachmentDisplay
+					}
+				}
+			},
+			excalidrawJsonKey: {
+				default: null,
+				parseHTML: element => element.getAttribute("data-excalidraw-json-key"),
+				renderHTML: attributes => {
+					if (!attributes.excalidrawJsonKey) {
+						return {}
+					}
+
+					return {
+						"data-excalidraw-json-key": attributes.excalidrawJsonKey
+					}
+				}
+			},
 			attachmentName: {
 				default: null,
 				parseHTML: element => element.getAttribute("data-attachment-name"),
@@ -179,13 +205,15 @@ export const Attachment = Node.create<AttachmentOptions>({
 		]
 	},
 
-	renderHTML({ HTMLAttributes }) {
+		renderHTML({ HTMLAttributes }) {
 		const attachmentsMap = this.options.attachments ?? {}
 		const rawKey = HTMLAttributes["data-attachment-key"] ?? HTMLAttributes.attachmentKey ?? null
 		const rawSrc = HTMLAttributes["data-attachment-src"] ?? HTMLAttributes.attachmentSrc ?? HTMLAttributes.src ?? null
+		const rawDisplay = HTMLAttributes["data-attachment-display"] ?? HTMLAttributes.attachmentDisplay ?? null
 		const rawName = HTMLAttributes["data-attachment-name"] ?? HTMLAttributes.attachmentName ?? null
 		const rawSize = HTMLAttributes["data-attachment-size"] ?? HTMLAttributes.attachmentSize ?? null
 		const rawMime = HTMLAttributes["data-attachment-mime"] ?? HTMLAttributes.attachmentMime ?? null
+		const excalidrawJsonKey = HTMLAttributes["data-excalidraw-json-key"] ?? HTMLAttributes.excalidrawJsonKey ?? null
 		const existingClass = HTMLAttributes.class as string | undefined
 
 		const attachmentMeta = rawKey ? attachmentsMap[rawKey] : undefined
@@ -241,6 +269,10 @@ export const Attachment = Node.create<AttachmentOptions>({
 			baseAttributes["data-attachment-src"] = src
 		}
 
+		if (rawDisplay) {
+			baseAttributes["data-attachment-display"] = rawDisplay
+		}
+
 		if (name) {
 			baseAttributes["data-attachment-name"] = name
 		}
@@ -253,11 +285,16 @@ export const Attachment = Node.create<AttachmentOptions>({
 			baseAttributes["data-attachment-mime"] = mime
 		}
 
+		if (excalidrawJsonKey) {
+			baseAttributes["data-excalidraw-json-key"] = excalidrawJsonKey
+		}
+
+		const displayBlock = typeof rawDisplay === "string" && rawDisplay.toLowerCase() === "block"
 		const className = mergeClassNames(
 			this.options.HTMLAttributes?.class,
 			existingClass,
-			"note-attachment-chip",
-			hasPreview ? "note-attachment-chip--preview" : undefined
+			displayBlock ? "note-attachment-block" : "note-attachment-chip",
+			hasPreview ? (displayBlock ? "note-attachment-block--preview" : "note-attachment-chip--preview") : undefined
 		)
 
 		if (className) {
@@ -269,13 +306,13 @@ export const Attachment = Node.create<AttachmentOptions>({
 		if (hasPreview && attachmentMeta?.url) {
 			children.push([
 				"span",
-				{ class: "note-attachment-thumb" },
+				{ class: displayBlock ? "note-attachment-block-media" : "note-attachment-thumb" },
 				[
 					"img",
 					{
 						src: attachmentMeta.url,
 						alt: name ?? label,
-						class: "note-attachment-thumb-image"
+						class: displayBlock ? "note-attachment-block-image" : "note-attachment-thumb-image"
 					}
 				]
 			])
@@ -292,7 +329,7 @@ export const Attachment = Node.create<AttachmentOptions>({
 
 		children.push([
 			"span",
-			{ class: "note-attachment-text" },
+			{ class: displayBlock ? "note-attachment-block-caption" : "note-attachment-text" },
 			label
 		])
 
