@@ -121,6 +121,15 @@
   @apply text-blue-400 hover:text-blue-300;
 }
 
+/* Attachment chip styles */
+.tiptap-editor .ProseMirror .note-attachment-chip {
+  @apply inline-flex items-center gap-2 px-2.5 py-1 rounded-full border border-border bg-muted text-xs font-medium text-foreground;
+}
+
+.dark .tiptap-editor .ProseMirror .note-attachment-chip {
+  @apply border-white/10 bg-white/10 text-white;
+}
+
 /* Image styles */
 .tiptap-editor .ProseMirror img {
   @apply max-w-full h-auto rounded-lg my-4;

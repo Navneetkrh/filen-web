@@ -3,22 +3,23 @@ import { Button } from "@/components/ui/button"
 import { TiptapEditor } from "@/components/tiptapEditor"
 import worker from "@/lib/worker"
 import useSDKConfig from "@/hooks/useSDKConfig"
-import { useQuery } from "@tanstack/react-query"
-import { Loader, Notebook, Paperclip, Plus, Trash2, Link2, Image as ImageIcon, FileText, Check } from "lucide-react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { Loader, Loader2, Notebook, Paperclip, Plus, Trash2, Link2, Download, Check } from "lucide-react"
 import { showInputDialog } from "@/components/dialogs/input"
 import useErrorToast from "@/hooks/useErrorToast"
 import useLoadingToast from "@/hooks/useLoadingToast"
 import { showConfirmDialog } from "@/components/dialogs/confirm"
 import useWindowSize from "@/hooks/useWindowSize"
-import { DESKTOP_TOPBAR_HEIGHT } from "@/constants"
+import { DESKTOP_TOPBAR_HEIGHT, THUMBNAIL_MAX_FETCH_SIZE } from "@/constants"
 import type { DriveCloudItem } from "@/components/drive"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/providers/themeProvider"
+import { fileNameToSVGIcon } from "@/assets/fileExtensionIcons"
+import { fileNameToThumbnailType } from "@/components/dialogs/previewDialog/utils"
+import { generateThumbnail } from "@/lib/worker/proxy"
 
 const NOTE_FILE_NAME = "note.md"
 const NOTES_ROOT_NAME = "Notes"
-const ATTACHMENT_REGEX = /attachment:([a-f0-9-]+)\/([^\s)]+)/gi
-
 type NotesQueryData = {
 	root: DriveCloudItem
 	notes: DriveCloudItem[]
@@ -38,10 +39,6 @@ async function findOrCreateChildDirectory(parentUUID: string, name: string): Pro
 		name,
 		parent: parentUUID
 	})
-}
-
-function getAttachmentKey(item: NoteAttachment): string {
-	return `${item.uuid}/${encodeURIComponent(item.name)}`
 }
 
 
@@ -66,6 +63,23 @@ function isNoteAttachment(item: DriveCloudItem): item is NoteAttachment {
 	return item.type === "file"
 }
 
+function generateNoteName(): string {
+	const now = new Date()
+	const datePart = now.toISOString().slice(0, 10)
+	const randomPart = Math.random().toString(36).slice(2, 6).toUpperCase()
+
+	return `Note ${datePart}-${randomPart}`
+}
+
+function escapeHtml(value: string): string {
+	return value
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.replace(/"/g, "&quot;")
+		.replace(/'/g, "&#039;")
+}
+
 export const NotesSimple = memo(() => {
 	const { baseFolderUUID } = useSDKConfig()
 	const errorToast = useErrorToast()
@@ -74,8 +88,8 @@ export const NotesSimple = memo(() => {
 	const { dark } = useTheme()
 	const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 	const loadingNoteRef = useRef<string | null>(null)
-	const attachmentUrlsRef = useRef<Record<string, { url: string; mime: string }>>({})
-	const fetchingAttachmentsRef = useRef<Set<string>>(new Set())
+	const selectedNoteRef = useRef<DriveCloudItem | null>(null)
+	const previewFetchInFlightRef = useRef<Set<string>>(new Set())
 
 	const [selectedNote, setSelectedNote] = useState<DriveCloudItem | null>(null)
 	const [noteFile, setNoteFile] = useState<NoteAttachment | null>(null)
@@ -83,22 +97,19 @@ export const NotesSimple = memo(() => {
 	const [attachments, setAttachments] = useState<NoteAttachment[]>([])
 	const [saving, setSaving] = useState<boolean>(false)
 	const [saved, setSaved] = useState<boolean>(false)
-	const [attachmentUrls, setAttachmentUrls] = useState<Record<string, { url: string; mime: string }>>({})
+	const [loadingNoteId, setLoadingNoteId] = useState<string | null>(null)
+	const [attachmentPreviews, setAttachmentPreviews] = useState<Record<string, string | null>>({})
+	const [downloadingAttachments, setDownloadingAttachments] = useState<Record<string, boolean>>({})
+
+	const queryClient = useQueryClient()
 
 	const ensureNotesRoot = useCallback(async () => {
 		return await findOrCreateChildDirectory(baseFolderUUID, NOTES_ROOT_NAME)
 	}, [baseFolderUUID])
 
-	const resetAttachmentUrls = useCallback(() => {
-		for (const key of Object.keys(attachmentUrlsRef.current)) {
-			const current = attachmentUrlsRef.current[key]
-			if (current) {
-				URL.revokeObjectURL(current.url)
-			}
-		}
-
-		attachmentUrlsRef.current = {}
-		setAttachmentUrls({})
+	const resetAttachmentPreviews = useCallback(() => {
+		previewFetchInFlightRef.current.clear()
+		setAttachmentPreviews({})
 	}, [])
 
 	const notesQuery = useQuery<NotesQueryData>({
@@ -120,9 +131,14 @@ export const NotesSimple = memo(() => {
 		return [...list].sort((a, b) => (b.lastModified ?? 0) - (a.lastModified ?? 0))
 	}, [notesQuery.data?.notes])
 
+	useEffect(() => {
+		selectedNoteRef.current = selectedNote
+	}, [selectedNote])
+
 	const loadNote = useCallback(
 		async (note: DriveCloudItem, options?: { skipContent?: boolean }) => {
 			loadingNoteRef.current = note.uuid
+			setLoadingNoteId(note.uuid)
 
 			try {
 				const items = (await worker.listDirectory({ uuid: note.uuid })) as DriveCloudItem[]
@@ -163,11 +179,72 @@ export const NotesSimple = memo(() => {
 			} finally {
 				if (loadingNoteRef.current === note.uuid) {
 					loadingNoteRef.current = null
+					setLoadingNoteId(null)
 				}
 			}
 		},
 		[errorToast]
 	)
+
+	useEffect(() => {
+		const activeUUIDs = new Set(attachments.map(item => item.uuid))
+
+		setAttachmentPreviews(prev => {
+			let changed = false
+			const next = { ...prev }
+
+			for (const key of Object.keys(next)) {
+				if (!activeUUIDs.has(key)) {
+					delete next[key]
+					changed = true
+				}
+			}
+
+			return changed ? next : prev
+		})
+
+		attachments.forEach(item => {
+			const key = item.uuid
+			const thumbnailType = fileNameToThumbnailType(item.name)
+			const shouldSkipThumbnail =
+				item.size > THUMBNAIL_MAX_FETCH_SIZE || thumbnailType === "none"
+
+			if (shouldSkipThumbnail) {
+				setAttachmentPreviews(prev => {
+					if (prev[key] === null) {
+						return prev
+					}
+
+					return { ...prev, [key]: null }
+				})
+
+				return
+			}
+
+			if (previewFetchInFlightRef.current.has(key)) {
+				return
+			}
+
+			if (attachmentPreviews[key]) {
+				return
+			}
+
+			previewFetchInFlightRef.current.add(key)
+			setAttachmentPreviews(prev => ({ ...prev, [key]: null }))
+
+			void generateThumbnail({ item })
+				.then(url => {
+					setAttachmentPreviews(prev => ({ ...prev, [key]: url }))
+				})
+				.catch(e => {
+					console.error(e)
+					setAttachmentPreviews(prev => ({ ...prev, [key]: null }))
+				})
+				.finally(() => {
+					previewFetchInFlightRef.current.delete(key)
+				})
+		})
+	}, [attachments, attachmentPreviews])
 
 	const handleSelect = useCallback(
 		(note: DriveCloudItem) => {
@@ -180,15 +257,17 @@ export const NotesSimple = memo(() => {
 				saveTimer.current = null
 			}
 
-			resetAttachmentUrls()
+			resetAttachmentPreviews()
 
 			setSelectedNote(note)
 			setNoteFile(null)
 			setAttachments([])
 			setContent("")
+			setSaving(false)
+			setSaved(false)
 			void loadNote(note)
 		},
-		[selectedNote, loadNote, resetAttachmentUrls]
+		[selectedNote, loadNote, resetAttachmentPreviews]
 	)
 
 	useEffect(() => {
@@ -211,35 +290,93 @@ export const NotesSimple = memo(() => {
 
 	useEffect(() => {
 		return () => {
-			resetAttachmentUrls()
+			resetAttachmentPreviews()
 		}
-	}, [resetAttachmentUrls])
+	}, [resetAttachmentPreviews])
 
 	const createNote = useCallback(async () => {
-		const toast = loadingToast()
+		if (saveTimer.current) {
+			clearTimeout(saveTimer.current)
+			saveTimer.current = null
+		}
+
+		resetAttachmentPreviews()
 
 		try {
 			const root = notesQuery.data?.root ?? (await ensureNotesRoot())
-			const timestamp = new Date().toISOString().split("T")[0]
-			const defaultName = `New Note ${timestamp}`
-			const directory = await worker.createDirectory({ name: defaultName, parent: root.uuid })
+			const name = generateNoteName()
 			const initialContent = "# New Note\n\n"
-			const file = new File([initialContent], NOTE_FILE_NAME, { type: "text/markdown" })
 
-			await worker.uploadFile({ file, parent: directory.uuid, name: NOTE_FILE_NAME, emitEvents: false })
+			const directory = (await worker.createDirectory({
+				name,
+				parent: root.uuid
+			})) as DriveCloudItem
 
-			const result = await notesQuery.refetch()
-			const refreshed = result.data?.notes.find(item => item.uuid === directory.uuid) ?? directory
+			queryClient.setQueryData<NotesQueryData>(["fileNotes", baseFolderUUID], prev => {
+				if (!prev) {
+					return {
+						root,
+						notes: [directory]
+					}
+				}
 
-			handleSelect(refreshed)
+				const existing = prev.notes.filter(note => note.uuid !== directory.uuid)
+
+				return {
+					root: prev.root ?? root,
+					notes: [directory, ...existing]
+				}
+			})
+
+			selectedNoteRef.current = directory
+			setSelectedNote(directory)
+			setNoteFile(null)
+			setAttachments([])
 			setContent(initialContent)
+			setSaving(true)
+			setSaved(false)
+			setLoadingNoteId(null)
+
+			const noteUUID = directory.uuid
+
+			void (async () => {
+				try {
+					const file = new File([initialContent], NOTE_FILE_NAME, { type: "text/markdown" })
+					const uploaded = (await worker.uploadFile({
+						file,
+						parent: noteUUID,
+						name: NOTE_FILE_NAME,
+						emitEvents: false
+					})) as NoteAttachment
+
+					if (selectedNoteRef.current?.uuid === noteUUID) {
+						setNoteFile(uploaded)
+						setSaving(false)
+						setSaved(true)
+						setTimeout(() => {
+							if (selectedNoteRef.current?.uuid === noteUUID) {
+								setSaved(false)
+							}
+						}, 2000)
+					}
+
+					await notesQuery.refetch()
+				} catch (error) {
+					console.error(error)
+
+					if (selectedNoteRef.current?.uuid === noteUUID) {
+						setSaving(false)
+						setSaved(false)
+					}
+
+					errorToast((error as Error).message ?? (error as Error).toString())
+				}
+			})()
 		} catch (e) {
 			console.error(e)
 			errorToast((e as Error).message ?? (e as Error).toString())
-		} finally {
-			toast.dismiss()
 		}
-	}, [ensureNotesRoot, handleSelect, loadingToast, notesQuery, errorToast])
+	}, [baseFolderUUID, ensureNotesRoot, errorToast, notesQuery, queryClient, resetAttachmentPreviews])
 
 	const renameNote = useCallback(async () => {
 		if (!selectedNote) {
@@ -311,7 +448,7 @@ export const NotesSimple = memo(() => {
 			setContent("")
 			setAttachments([])
 			setNoteFile(null)
-			resetAttachmentUrls()
+			resetAttachmentPreviews()
 
 			const result = await notesQuery.refetch()
 			const next = result.data?.notes[0]
@@ -369,27 +506,6 @@ export const NotesSimple = memo(() => {
 		[selectedNote, noteFile, notesQuery, errorToast]
 	)
 
-	const fetchAttachmentPreview = useCallback(
-		async (item: NoteAttachment, key: string) => {
-			try {
-				const buffer = (await worker.readFile({ item, emitEvents: false })) as Uint8Array
-				const blob = new Blob([new Uint8Array(buffer)], { type: item.mime ?? "application/octet-stream" })
-				const url = URL.createObjectURL(blob)
-
-				attachmentUrlsRef.current[key] = {
-					url,
-					mime: item.mime ?? "application/octet-stream"
-				}
-				setAttachmentUrls({ ...attachmentUrlsRef.current })
-			} catch (e) {
-				console.error(e)
-			} finally {
-				fetchingAttachmentsRef.current.delete(key)
-			}
-		},
-		[]
-	)
-
 	const onValueChange = useCallback(
 		(value: string) => {
 			setContent(value)
@@ -444,6 +560,39 @@ export const NotesSimple = memo(() => {
 		[selectedNote, loadNote, loadingToast, errorToast]
 	)
 
+	const downloadAttachment = useCallback(
+		async (item: NoteAttachment) => {
+			setDownloadingAttachments(prev => ({ ...prev, [item.uuid]: true }))
+
+			try {
+				const buffer = (await worker.readFile({ item, emitEvents: false })) as Uint8Array
+				const blob = new Blob([buffer], { type: item.mime ?? "application/octet-stream" })
+				const url = URL.createObjectURL(blob)
+				const anchor = document.createElement("a")
+
+				anchor.href = url
+				anchor.download = item.name
+				document.body.appendChild(anchor)
+				anchor.click()
+				document.body.removeChild(anchor)
+
+				setTimeout(() => {
+					URL.revokeObjectURL(url)
+				}, 10_000)
+			} catch (e) {
+				console.error(e)
+				errorToast((e as Error).message ?? (e as Error).toString())
+			} finally {
+				setDownloadingAttachments(prev => {
+					const next = { ...prev }
+					delete next[item.uuid]
+					return next
+				})
+			}
+		},
+		[errorToast]
+	)
+
 	const onDeleteAttachment = useCallback(
 		async (item: NoteAttachment) => {
 			const confirmed = await showConfirmDialog({
@@ -470,55 +619,16 @@ export const NotesSimple = memo(() => {
 		[selectedNote, loadNote, errorToast]
 	)
 
-	useEffect(() => {
-		const neededKeys = new Set<string>()
-		let match: RegExpExecArray | null
-		ATTACHMENT_REGEX.lastIndex = 0
-		while ((match = ATTACHMENT_REGEX.exec(content)) !== null) {
-			const key = `${match[1]}/${match[2]}`
-			neededKeys.add(key)
-		}
-		ATTACHMENT_REGEX.lastIndex = 0
-
-		attachments.forEach(item => {
-			const key = getAttachmentKey(item)
-			const isImage = item.mime?.startsWith("image/")
-
-			// Fetch preview if it's needed in content OR if it's an image (for sidebar preview)
-			if ((neededKeys.has(key) || isImage) && !attachmentUrlsRef.current[key] && !fetchingAttachmentsRef.current.has(key)) {
-				fetchingAttachmentsRef.current.add(key)
-				void fetchAttachmentPreview(item, key)
-			}
-		})
-
-		// Only clean up URLs that are not needed in content AND not images
-		for (const key of Object.keys(attachmentUrlsRef.current)) {
-			const attachment = attachments.find(item => getAttachmentKey(item) === key)
-			const isImage = attachment?.mime?.startsWith("image/")
-
-			if (!neededKeys.has(key) && !isImage) {
-				const current = attachmentUrlsRef.current[key]
-				if (current) {
-					URL.revokeObjectURL(current.url)
-				}
-				delete attachmentUrlsRef.current[key]
-			}
-		}
-
-		setAttachmentUrls({ ...attachmentUrlsRef.current })
-	}, [attachments, content, fetchAttachmentPreview])
-
 	// Note: Attachment rendering will be handled by Novel editor's built-in image support
 
 	const insertAttachment = useCallback(
 		(item: NoteAttachment) => {
 			const encodedName = encodeURIComponent(item.name)
 			const attachmentKey = `${item.uuid}/${encodedName}`
-
-			// For TiptapEditor, we'll insert HTML directly
-			const snippet = item.mime?.startsWith("image/")
-				? `<img src="attachment:${attachmentKey}" alt="${item.name}" />`
-				: `<a href="attachment:${attachmentKey}">${item.name}</a>`
+			const label = escapeHtml(item.name)
+			const size = formatBytes(item.size)
+			const chipContent = size ? `${label} (${size})` : label
+			const snippet = `<span data-attachment-src="attachment:${attachmentKey}" data-attachment-label="${chipContent}" class="note-attachment-chip">&#128206; ${chipContent}</span>`
 
 			const currentContent = content || ""
 			const nextValue = currentContent + (currentContent ? "<br><br>" : "") + snippet
@@ -653,16 +763,25 @@ export const NotesSimple = memo(() => {
 					</div>
 					<div className="flex-1 overflow-hidden">
 						{selectedNote ? (
-							<div className="h-full">
+							<div className="relative h-full">
+								{loadingNoteId === selectedNote.uuid && (
+									<div
+										className={cn(
+											"absolute inset-0 z-10 flex items-center justify-center backdrop-blur-sm",
+											dark ? "bg-black/60" : "bg-white/70"
+										)}
+									>
+										<Loader2 className="animate-spin" />
+									</div>
+								)}
 								<TiptapEditor
 									value={content}
 									onChange={onValueChange}
 									placeholder="Start writing your beautiful note..."
 									height={noteContentHeight}
 									className="h-full"
-									editable={true}
+									editable={loadingNoteId !== selectedNote.uuid}
 									showToolbar={true}
-									attachmentUrls={attachmentUrls}
 								/>
 							</div>
 						) : (
@@ -711,9 +830,9 @@ export const NotesSimple = memo(() => {
 							) : (
 								<ul className="flex flex-col gap-2 mt-2">
 									{attachments.map((item: NoteAttachment) => {
-										const key = getAttachmentKey(item)
-										const preview = attachmentUrls[key]
-										const isImage = item.mime?.startsWith("image/")
+										const preview = attachmentPreviews[item.uuid]
+										const downloading = Boolean(downloadingAttachments[item.uuid])
+										const icon = fileNameToSVGIcon(item.name)
 
 										return (
 											<li
@@ -724,15 +843,19 @@ export const NotesSimple = memo(() => {
 												)}
 											>
 												<div className="overflow-hidden rounded-lg">
-													{isImage && preview ? (
+													{preview ? (
 														<img
-															src={preview.url}
+															src={preview}
 															alt={item.name}
 															className="h-24 w-full rounded-lg object-cover"
 														/>
 													) : (
-														<div className="flex h-24 flex-col items-center justify-center gap-1 rounded-lg bg-muted/40 text-muted-foreground">
-															{isImage ? <ImageIcon size={20} /> : <FileText size={20} />}
+														<div className="flex h-24 flex-col items-center justify-center gap-2 rounded-lg bg-muted/40 text-muted-foreground">
+															<img
+																src={icon}
+																alt=""
+																className="h-10 w-10 opacity-80"
+															/>
 															<span className="text-[10px] uppercase tracking-wider">{item.mime ?? "File"}</span>
 														</div>
 													)}
@@ -752,6 +875,16 @@ export const NotesSimple = memo(() => {
 															onClick={() => insertAttachment(item)}
 														>
 															<Link2 size={12} />
+														</Button>
+														<Button
+															variant="ghost"
+															size="sm"
+															className="h-6 w-6 p-0 rounded-md text-muted-foreground hover:bg-muted/40 transition-all duration-200"
+															onClick={() => downloadAttachment(item)}
+															disabled={downloading}
+															title="Download attachment"
+														>
+															{downloading ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
 														</Button>
 														<Button
 															variant="ghost"

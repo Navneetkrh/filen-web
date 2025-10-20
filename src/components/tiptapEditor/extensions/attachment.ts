@@ -3,7 +3,15 @@ import { Plugin, PluginKey } from '@tiptap/pm/state'
 
 export interface AttachmentOptions {
   HTMLAttributes: Record<string, any>
-  attachmentUrls: Record<string, { url: string; mime: string }>
+}
+
+function mergeClassNames(...classes: Array<string | null | undefined>): string | undefined {
+  const filtered = classes.filter(Boolean) as string[]
+  if (filtered.length === 0) {
+    return undefined
+  }
+
+  return filtered.join(' ')
 }
 
 declare module '@tiptap/core' {
@@ -23,7 +31,6 @@ export const Attachment = Node.create<AttachmentOptions>({
   addOptions() {
     return {
       HTMLAttributes: {},
-      attachmentUrls: {},
     }
   },
 
@@ -38,6 +45,32 @@ export const Attachment = Node.create<AttachmentOptions>({
       src: {
         default: null,
       },
+      attachmentSrc: {
+        default: null,
+        parseHTML: element => element.getAttribute('data-attachment-src'),
+        renderHTML: attributes => {
+          if (!attributes.attachmentSrc) {
+            return {}
+          }
+
+          return {
+            'data-attachment-src': attributes.attachmentSrc,
+          }
+        },
+      },
+      label: {
+        default: null,
+        parseHTML: element => element.getAttribute('data-attachment-label'),
+        renderHTML: attributes => {
+          if (!attributes.label) {
+            return {}
+          }
+
+          return {
+            'data-attachment-label': attributes.label,
+          }
+        },
+      },
       alt: {
         default: null,
       },
@@ -50,32 +83,52 @@ export const Attachment = Node.create<AttachmentOptions>({
   parseHTML() {
     return [
       {
+        tag: 'span[data-attachment-src]',
+      },
+      {
         tag: 'img[src*="attachment:"]',
       },
     ]
   },
 
   renderHTML({ HTMLAttributes }) {
-    const { src } = HTMLAttributes
-    
-    // Check if this is an attachment URL
-    if (src && src.startsWith('attachment:')) {
-      const attachmentKey = src.replace('attachment:', '')
-      const attachmentData = this.options.attachmentUrls[attachmentKey]
-      
-      if (attachmentData) {
-        // Replace with actual blob URL
-        return ['img', mergeAttributes(this.options.HTMLAttributes, {
-          ...HTMLAttributes,
-          src: attachmentData.url,
-          class: 'max-w-full h-auto rounded-lg attachment-image'
-        })]
-      } else {
-        // Show placeholder for unavailable attachment
-        return ['div', { 
-          class: 'attachment-placeholder text-muted-foreground text-sm italic p-2 border border-dashed rounded'
-        }, `Attachment unavailable: ${HTMLAttributes.alt || 'Unknown'}`]
-      }
+    const rawSrc = HTMLAttributes['data-attachment-src'] ?? HTMLAttributes.attachmentSrc ?? HTMLAttributes.src
+
+    if (rawSrc && rawSrc.startsWith('attachment:')) {
+      const label =
+        HTMLAttributes['data-attachment-label'] ??
+        HTMLAttributes.label ??
+        HTMLAttributes.alt ??
+        'Attachment'
+
+      const baseAttributes = { ...HTMLAttributes }
+      const className = baseAttributes.class as string | undefined
+
+      delete baseAttributes.src
+      delete baseAttributes.alt
+      delete baseAttributes.title
+      delete baseAttributes.attachmentSrc
+      delete baseAttributes['data-attachment-src']
+      delete baseAttributes['data-attachment-label']
+      delete baseAttributes.class
+
+      return [
+        'span',
+        mergeAttributes(
+          this.options.HTMLAttributes,
+          {
+            ...baseAttributes,
+            'data-attachment-src': rawSrc,
+            'data-attachment-label': label,
+            class: mergeClassNames(
+              this.options.HTMLAttributes?.class,
+              className,
+              'note-attachment-chip'
+            ),
+          }
+        ),
+        `📎 ${label}`,
+      ]
     }
 
     return ['img', mergeAttributes(this.options.HTMLAttributes, HTMLAttributes)]
@@ -99,14 +152,7 @@ export const Attachment = Node.create<AttachmentOptions>({
         props: {
           handleDOMEvents: {
             // Handle attachment URL updates
-            load: (view) => {
-              // Re-render when attachment URLs change
-              const { attachmentUrls } = this.options
-              if (Object.keys(attachmentUrls).length > 0) {
-                view.dispatch(view.state.tr)
-              }
-              return false
-            }
+            load: () => false,
           }
         }
       })

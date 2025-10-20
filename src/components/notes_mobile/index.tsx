@@ -3,19 +3,20 @@ import { Button } from "@/components/ui/button"
 import { TiptapEditor } from "@/components/tiptapEditor"
 import worker from "@/lib/worker"
 import useSDKConfig from "@/hooks/useSDKConfig"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
     Loader,
+    Loader2,
     Notebook,
     Paperclip,
     Plus,
     Link2,
-    Image as ImageIcon,
-    FileText,
     Check,
     ArrowLeft,
     MoreVertical,
-    X
+    X,
+    Download,
+    Trash2
 } from "lucide-react"
 import useErrorToast from "@/hooks/useErrorToast"
 import useLoadingToast from "@/hooks/useLoadingToast"
@@ -23,12 +24,15 @@ import useWindowSize from "@/hooks/useWindowSize"
 import type { DriveCloudItem } from "@/components/drive"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/providers/themeProvider"
+import { THUMBNAIL_MAX_FETCH_SIZE } from "@/constants"
+import { fileNameToSVGIcon } from "@/assets/fileExtensionIcons"
+import { fileNameToThumbnailType } from "@/components/dialogs/previewDialog/utils"
+import { generateThumbnail } from "@/lib/worker/proxy"
+import { showConfirmDialog } from "@/components/dialogs/confirm"
 
 
 const NOTE_FILE_NAME = "note.md"
 const NOTES_ROOT_NAME = "Notes"
-const ATTACHMENT_REGEX = /attachment:([a-f0-9-]+)\/([^\s)]+)/gi
-
 type NotesQueryData = {
     root: DriveCloudItem
     notes: DriveCloudItem[]
@@ -48,10 +52,6 @@ async function findOrCreateChildDirectory(parentUUID: string, name: string): Pro
         name,
         parent: parentUUID
     })
-}
-
-function getAttachmentKey(item: NoteAttachment): string {
-    return `${item.uuid}/${encodeURIComponent(item.name)}`
 }
 
 function formatBytes(bytes?: number | null): string {
@@ -74,6 +74,23 @@ function isNoteAttachment(item: DriveCloudItem): item is NoteAttachment {
     return item.type === "file"
 }
 
+function generateNoteName(): string {
+    const now = new Date()
+    const datePart = now.toISOString().slice(0, 10)
+    const randomPart = Math.random().toString(36).slice(2, 6).toUpperCase()
+
+    return `Note ${datePart}-${randomPart}`
+}
+
+function escapeHtml(value: string): string {
+    return value
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;")
+}
+
 export const NotesMobile = memo(() => {
     const { baseFolderUUID } = useSDKConfig()
     const errorToast = useErrorToast()
@@ -83,8 +100,8 @@ export const NotesMobile = memo(() => {
 
     const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
     const loadingNoteRef = useRef<string | null>(null)
-    const attachmentUrlsRef = useRef<Record<string, { url: string; mime: string }>>({})
-    const fetchingAttachmentsRef = useRef<Set<string>>(new Set())
+    const selectedNoteRef = useRef<DriveCloudItem | null>(null)
+    const previewFetchInFlightRef = useRef<Set<string>>(new Set())
 
     const [selectedNote, setSelectedNote] = useState<DriveCloudItem | null>(null)
     const [noteFile, setNoteFile] = useState<NoteAttachment | null>(null)
@@ -92,24 +109,21 @@ export const NotesMobile = memo(() => {
     const [attachments, setAttachments] = useState<NoteAttachment[]>([])
     const [saving, setSaving] = useState<boolean>(false)
     const [saved, setSaved] = useState<boolean>(false)
-    const [attachmentUrls, setAttachmentUrls] = useState<Record<string, { url: string; mime: string }>>({})
+    const [loadingNoteId, setLoadingNoteId] = useState<string | null>(null)
+    const [attachmentPreviews, setAttachmentPreviews] = useState<Record<string, string | null>>({})
+    const [downloadingAttachments, setDownloadingAttachments] = useState<Record<string, boolean>>({})
     const [currentView, setCurrentView] = useState<"list" | "editor" | "attachments">("list")
     const [showAttachments, setShowAttachments] = useState<boolean>(false)
+
+    const queryClient = useQueryClient()
 
     const ensureNotesRoot = useCallback(async () => {
         return await findOrCreateChildDirectory(baseFolderUUID, NOTES_ROOT_NAME)
     }, [baseFolderUUID])
 
-    const resetAttachmentUrls = useCallback(() => {
-        for (const key of Object.keys(attachmentUrlsRef.current)) {
-            const current = attachmentUrlsRef.current[key]
-            if (current) {
-                URL.revokeObjectURL(current.url)
-            }
-        }
-
-        attachmentUrlsRef.current = {}
-        setAttachmentUrls({})
+    const resetAttachmentPreviews = useCallback(() => {
+        previewFetchInFlightRef.current.clear()
+        setAttachmentPreviews({})
     }, [])
 
     const notesQuery = useQuery<NotesQueryData>({
@@ -130,9 +144,14 @@ export const NotesMobile = memo(() => {
         return [...list].sort((a, b) => (b.lastModified ?? 0) - (a.lastModified ?? 0))
     }, [notesQuery.data?.notes])
 
+    useEffect(() => {
+        selectedNoteRef.current = selectedNote
+    }, [selectedNote])
+
     const loadNote = useCallback(
         async (note: DriveCloudItem, options?: { skipContent?: boolean }) => {
             loadingNoteRef.current = note.uuid
+            setLoadingNoteId(note.uuid)
 
             try {
                 const items = (await worker.listDirectory({ uuid: note.uuid })) as DriveCloudItem[]
@@ -173,11 +192,72 @@ export const NotesMobile = memo(() => {
             } finally {
                 if (loadingNoteRef.current === note.uuid) {
                     loadingNoteRef.current = null
+                    setLoadingNoteId(null)
                 }
             }
         },
         [errorToast]
     )
+
+    useEffect(() => {
+        const activeUUIDs = new Set(attachments.map(item => item.uuid))
+
+        setAttachmentPreviews(prev => {
+            let changed = false
+            const next = { ...prev }
+
+            for (const key of Object.keys(next)) {
+                if (!activeUUIDs.has(key)) {
+                    delete next[key]
+                    changed = true
+                }
+            }
+
+            return changed ? next : prev
+        })
+
+        attachments.forEach(item => {
+            const key = item.uuid
+            const thumbnailType = fileNameToThumbnailType(item.name)
+            const shouldSkipThumbnail =
+                item.size > THUMBNAIL_MAX_FETCH_SIZE || thumbnailType === "none"
+
+            if (shouldSkipThumbnail) {
+                setAttachmentPreviews(prev => {
+                    if (prev[key] === null) {
+                        return prev
+                    }
+
+                    return { ...prev, [key]: null }
+                })
+
+                return
+            }
+
+            if (previewFetchInFlightRef.current.has(key)) {
+                return
+            }
+
+            if (attachmentPreviews[key]) {
+                return
+            }
+
+            previewFetchInFlightRef.current.add(key)
+            setAttachmentPreviews(prev => ({ ...prev, [key]: null }))
+
+            void generateThumbnail({ item })
+                .then(url => {
+                    setAttachmentPreviews(prev => ({ ...prev, [key]: url }))
+                })
+                .catch(e => {
+                    console.error(e)
+                    setAttachmentPreviews(prev => ({ ...prev, [key]: null }))
+                })
+                .finally(() => {
+                    previewFetchInFlightRef.current.delete(key)
+                })
+        })
+    }, [attachments, attachmentPreviews])
 
     const handleSelect = useCallback(
         (note: DriveCloudItem) => {
@@ -190,43 +270,105 @@ export const NotesMobile = memo(() => {
                 saveTimer.current = null
             }
 
-            resetAttachmentUrls()
+            resetAttachmentPreviews()
 
             setSelectedNote(note)
             setNoteFile(null)
             setAttachments([])
             setContent("")
+            setSaving(false)
+            setSaved(false)
             setCurrentView("editor")
             void loadNote(note)
         },
-        [selectedNote, loadNote, resetAttachmentUrls]
+        [selectedNote, loadNote, resetAttachmentPreviews]
     )
 
     const createNote = useCallback(async () => {
-        const toast = loadingToast()
+        if (saveTimer.current) {
+            clearTimeout(saveTimer.current)
+            saveTimer.current = null
+        }
+
+        resetAttachmentPreviews()
 
         try {
             const root = notesQuery.data?.root ?? (await ensureNotesRoot())
-            const timestamp = new Date().toISOString().split("T")[0]
-            const defaultName = `New Note ${timestamp}`
-            const directory = await worker.createDirectory({ name: defaultName, parent: root.uuid })
+            const name = generateNoteName()
             const initialContent = "# New Note\n\n"
-            const file = new File([initialContent], NOTE_FILE_NAME, { type: "text/markdown" })
 
-            await worker.uploadFile({ file, parent: directory.uuid, name: NOTE_FILE_NAME, emitEvents: false })
+            const directory = (await worker.createDirectory({
+                name,
+                parent: root.uuid
+            })) as DriveCloudItem
 
-            const result = await notesQuery.refetch()
-            const refreshed = result.data?.notes.find(item => item.uuid === directory.uuid) ?? directory
+            queryClient.setQueryData<NotesQueryData>(["fileNotes", baseFolderUUID], prev => {
+                if (!prev) {
+                    return {
+                        root,
+                        notes: [directory]
+                    }
+                }
 
-            handleSelect(refreshed)
+                const existing = prev.notes.filter(item => item.uuid !== directory.uuid)
+
+                return {
+                    root: prev.root ?? root,
+                    notes: [directory, ...existing]
+                }
+            })
+
+            selectedNoteRef.current = directory
+            setSelectedNote(directory)
+            setNoteFile(null)
+            setAttachments([])
             setContent(initialContent)
+            setSaving(true)
+            setSaved(false)
+            setLoadingNoteId(null)
+            setCurrentView("editor")
+            setShowAttachments(false)
+
+            const noteUUID = directory.uuid
+
+            void (async () => {
+                try {
+                    const file = new File([initialContent], NOTE_FILE_NAME, { type: "text/markdown" })
+                    const uploaded = (await worker.uploadFile({
+                        file,
+                        parent: noteUUID,
+                        name: NOTE_FILE_NAME,
+                        emitEvents: false
+                    })) as NoteAttachment
+
+                    if (selectedNoteRef.current?.uuid === noteUUID) {
+                        setNoteFile(uploaded)
+                        setSaving(false)
+                        setSaved(true)
+                        setTimeout(() => {
+                            if (selectedNoteRef.current?.uuid === noteUUID) {
+                                setSaved(false)
+                            }
+                        }, 2000)
+                    }
+
+                    await notesQuery.refetch()
+                } catch (error) {
+                    console.error(error)
+
+                    if (selectedNoteRef.current?.uuid === noteUUID) {
+                        setSaving(false)
+                        setSaved(false)
+                    }
+
+                    errorToast((error as Error).message ?? (error as Error).toString())
+                }
+            })()
         } catch (e) {
             console.error(e)
             errorToast((e as Error).message ?? (e as Error).toString())
-        } finally {
-            toast.dismiss()
         }
-    }, [ensureNotesRoot, handleSelect, loadingToast, notesQuery, errorToast])
+    }, [baseFolderUUID, ensureNotesRoot, errorToast, notesQuery, queryClient, resetAttachmentPreviews])
 
     const saveContent = useCallback(
         async (value: string) => {
@@ -290,27 +432,6 @@ export const NotesMobile = memo(() => {
         [selectedNote, saveContent]
     )
 
-    const fetchAttachmentPreview = useCallback(
-        async (item: NoteAttachment, key: string) => {
-            try {
-                const buffer = (await worker.readFile({ item, emitEvents: false })) as Uint8Array
-                const blob = new Blob([new Uint8Array(buffer)], { type: item.mime ?? "application/octet-stream" })
-                const url = URL.createObjectURL(blob)
-
-                attachmentUrlsRef.current[key] = {
-                    url,
-                    mime: item.mime ?? "application/octet-stream"
-                }
-                setAttachmentUrls({ ...attachmentUrlsRef.current })
-            } catch (e) {
-                console.error(e)
-            } finally {
-                fetchingAttachmentsRef.current.delete(key)
-            }
-        },
-        []
-    )
-
 
 
     // Mobile-specific handlers
@@ -345,15 +466,74 @@ export const NotesMobile = memo(() => {
         [selectedNote, loadNote, loadingToast, errorToast]
     )
 
+    const downloadAttachment = useCallback(
+        async (item: NoteAttachment) => {
+            setDownloadingAttachments(prev => ({ ...prev, [item.uuid]: true }))
+
+            try {
+                const buffer = (await worker.readFile({ item, emitEvents: false })) as Uint8Array
+                const blob = new Blob([buffer], { type: item.mime ?? "application/octet-stream" })
+                const url = URL.createObjectURL(blob)
+                const anchor = document.createElement("a")
+
+                anchor.href = url
+                anchor.download = item.name
+                document.body.appendChild(anchor)
+                anchor.click()
+                document.body.removeChild(anchor)
+
+                setTimeout(() => {
+                    URL.revokeObjectURL(url)
+                }, 10_000)
+            } catch (e) {
+                console.error(e)
+                errorToast((e as Error).message ?? (e as Error).toString())
+            } finally {
+                setDownloadingAttachments(prev => {
+                    const next = { ...prev }
+                    delete next[item.uuid]
+                    return next
+                })
+            }
+        },
+        [errorToast]
+    )
+
+    const onDeleteAttachment = useCallback(
+        async (item: NoteAttachment) => {
+            const confirmed = await showConfirmDialog({
+                title: "Remove attachment",
+                description: "Remove this attachment from the note?",
+                continueButtonText: "Delete",
+                continueButtonVariant: "destructive"
+            })
+
+            if (!confirmed) {
+                return
+            }
+
+            try {
+                await worker.trashItems({ items: [item] })
+                if (selectedNote) {
+                    await loadNote(selectedNote, { skipContent: true })
+                }
+            } catch (e) {
+                console.error(e)
+                errorToast((e as Error).message ?? (e as Error).toString())
+            }
+        },
+        [selectedNote, loadNote, errorToast]
+    )
+
     const insertAttachment = useCallback(
         (item: NoteAttachment) => {
             const encodedName = encodeURIComponent(item.name)
             const attachmentKey = `${item.uuid}/${encodedName}`
 
-            // For TiptapEditor, we'll insert HTML directly
-            const snippet = item.mime?.startsWith("image/")
-                ? `<img src="attachment:${attachmentKey}" alt="${item.name}" />`
-                : `<a href="attachment:${attachmentKey}">${item.name}</a>`
+            const label = escapeHtml(item.name)
+            const size = formatBytes(item.size)
+            const chipContent = size ? `${label} (${size})` : label
+            const snippet = `<span data-attachment-src="attachment:${attachmentKey}" data-attachment-label="${chipContent}" class="note-attachment-chip">&#128206; ${chipContent}</span>`
 
             const currentContent = content || ""
             const nextValue = currentContent + (currentContent ? "<br><br>" : "") + snippet
@@ -364,42 +544,6 @@ export const NotesMobile = memo(() => {
         [content, onValueChange]
     )
 
-    useEffect(() => {
-        const neededKeys = new Set<string>()
-        let match: RegExpExecArray | null
-        ATTACHMENT_REGEX.lastIndex = 0
-        while ((match = ATTACHMENT_REGEX.exec(content)) !== null) {
-            const key = `${match[1]}/${match[2]}`
-            neededKeys.add(key)
-        }
-        ATTACHMENT_REGEX.lastIndex = 0
-
-        attachments.forEach(item => {
-            const key = getAttachmentKey(item)
-            const isImage = item.mime?.startsWith("image/")
-
-            if ((neededKeys.has(key) || isImage) && !attachmentUrlsRef.current[key] && !fetchingAttachmentsRef.current.has(key)) {
-                fetchingAttachmentsRef.current.add(key)
-                void fetchAttachmentPreview(item, key)
-            }
-        })
-
-        for (const key of Object.keys(attachmentUrlsRef.current)) {
-            const attachment = attachments.find(item => getAttachmentKey(item) === key)
-            const isImage = attachment?.mime?.startsWith("image/")
-
-            if (!neededKeys.has(key) && !isImage) {
-                const current = attachmentUrlsRef.current[key]
-                if (current) {
-                    URL.revokeObjectURL(current.url)
-                }
-                delete attachmentUrlsRef.current[key]
-            }
-        }
-
-        setAttachmentUrls({ ...attachmentUrlsRef.current })
-    }, [attachments, content, fetchAttachmentPreview])
-
     // Mobile Notes List View
     if (currentView === "list") {
         return (
@@ -409,14 +553,14 @@ export const NotesMobile = memo(() => {
             )}>
                 {/* iOS-style Header */}
                 <div className={cn(
-                    "flex items-center justify-center px-4 py-3 border-b backdrop-blur-xl",
+                    "flex items-center justify-center px-6 py-4 border-b backdrop-blur-xl",
                     dark
-                        ? "border-white/10 bg-[#1c1c1e]/95"
-                        : "border-black/10 bg-white/95"
+                        ? "border-white/5 bg-[#1c1c1e]/98"
+                        : "border-black/5 bg-white/98"
                 )}>
                     <h1 className={cn(
-                        "text-lg font-semibold",
-                        dark ? "text-white" : "text-black"
+                        "text-xl font-bold tracking-tight",
+                        dark ? "text-white" : "text-[#1d1d1f]"
                     )}>Notes</h1>
                 </div>
 
@@ -427,51 +571,61 @@ export const NotesMobile = memo(() => {
                             <Loader className="animate-spin text-[#007AFF]" size={24} />
                         </div>
                     ) : sortedNotes.length === 0 ? (
-                        <div className="flex h-full flex-col items-center justify-center gap-6 text-center px-8">
+                        <div className="flex h-full flex-col items-center justify-center gap-8 text-center px-8">
                             <div className={cn(
-                                "w-20 h-20 rounded-full flex items-center justify-center",
-                                dark ? "bg-[#1c1c1e]" : "bg-white"
+                                "w-24 h-24 rounded-3xl flex items-center justify-center shadow-lg",
+                                dark
+                                    ? "bg-gradient-to-br from-[#1c1c1e] to-[#2c2c2e] shadow-black/30"
+                                    : "bg-gradient-to-br from-white to-[#f8f9fa] shadow-black/10"
                             )}>
-                                <Notebook size={32} className="text-[#007AFF]" />
+                                <Notebook size={36} className="text-[#007AFF]" />
                             </div>
-                            <div>
-                                <p className={cn(
-                                    "text-xl font-semibold mb-2",
-                                    dark ? "text-white" : "text-black"
+                            <div className="space-y-3">
+                                <h2 className={cn(
+                                    "text-2xl font-bold tracking-tight",
+                                    dark ? "text-white" : "text-[#1d1d1f]"
                                 )}>
-                                    No Notes
-                                </p>
-                                <p className="text-[#8e8e93] text-base leading-relaxed">
-                                    Create your first note by tapping the + button above
+                                    No Notes Yet
+                                </h2>
+                                <p className={cn(
+                                    "text-base leading-relaxed max-w-xs",
+                                    dark ? "text-[#8e8e93]" : "text-[#6d6d70]"
+                                )}>
+                                    Start capturing your thoughts and ideas. Tap the + button to create your first note.
                                 </p>
                             </div>
                         </div>
                     ) : (
-                        <div className="px-4 py-2">
-                            {sortedNotes.map((note, index) => (
+                        <div className="px-4 py-3">
+                            {sortedNotes.map((note) => (
                                 <button
                                     key={note.uuid}
-                                    className={cn(
-                                        "w-full text-left transition-all duration-200 active:scale-[0.98]",
-                                        index === 0 ? "pt-2" : "",
-                                        index === sortedNotes.length - 1 ? "pb-2" : ""
-                                    )}
+                                    className="w-full text-left transition-all duration-200 active:scale-[0.98] mb-3 last:mb-0"
                                     onClick={() => handleSelect(note)}
                                 >
                                     <div className={cn(
-                                        "p-4 rounded-xl mb-2 border",
+                                        "p-5 rounded-2xl border-0 shadow-sm transition-all duration-200",
                                         dark
-                                            ? "border-[#38383a] bg-[#1c1c1e] active:bg-[#2c2c2e]"
-                                            : "border-[#d1d1d6] bg-white active:bg-[#f2f2f7] shadow-sm"
+                                            ? "bg-[#1c1c1e] active:bg-[#2c2c2e] shadow-black/20"
+                                            : "bg-white active:bg-[#f8f9fa] shadow-black/5"
                                     )}>
-                                        <p className={cn(
-                                            "font-medium text-base leading-tight line-clamp-2 mb-2",
-                                            dark ? "text-white" : "text-black"
-                                        )}>
-                                            {note.name || "Untitled"}
-                                        </p>
+                                        <div className="flex items-start justify-between mb-3">
+                                            <h3 className={cn(
+                                                "font-semibold text-lg leading-tight line-clamp-2 flex-1 mr-3",
+                                                dark ? "text-white" : "text-[#1d1d1f]"
+                                            )}>
+                                                {note.name || "Untitled Note"}
+                                            </h3>
+                                            <div className={cn(
+                                                "w-2 h-2 rounded-full mt-2 shrink-0",
+                                                dark ? "bg-[#48484a]" : "bg-[#c7c7cc]"
+                                            )} />
+                                        </div>
                                         <div className="flex items-center justify-between">
-                                            <p className="text-[#8e8e93] text-sm">
+                                            <p className={cn(
+                                                "text-sm font-medium",
+                                                dark ? "text-[#8e8e93]" : "text-[#6d6d70]"
+                                            )}>
                                                 {note.lastModified
                                                     ? new Date(note.lastModified).toLocaleDateString('en-US', {
                                                         month: 'short',
@@ -481,7 +635,14 @@ export const NotesMobile = memo(() => {
                                                     : "Just now"
                                                 }
                                             </p>
-                                            <div className="w-2 h-2 rounded-full bg-[#8e8e93] opacity-60" />
+                                            <div className={cn(
+                                                "text-xs px-2 py-1 rounded-full font-medium",
+                                                dark
+                                                    ? "bg-[#007AFF]/20 text-[#007AFF]"
+                                                    : "bg-[#007AFF]/10 text-[#007AFF]"
+                                            )}>
+                                                Note
+                                            </div>
                                         </div>
                                     </div>
                                 </button>
@@ -495,13 +656,13 @@ export const NotesMobile = memo(() => {
                     <Button
                         onClick={createNote}
                         className={cn(
-                            "h-14 w-14 rounded-full shadow-lg transition-all duration-300 active:scale-95",
+                            "h-16 w-16 rounded-2xl shadow-2xl transition-all duration-300 active:scale-95",
                             "bg-[#007AFF] hover:bg-[#0056CC]",
-                            "hover:shadow-xl hover:scale-105",
-                            "border-2 border-white/20"
+                            "hover:shadow-2xl hover:scale-105",
+                            "border-0 shadow-[#007AFF]/25"
                         )}
                     >
-                        <Plus size={24} strokeWidth={2.5} className="text-white" />
+                        <Plus size={28} strokeWidth={2.5} className="text-white" />
                     </Button>
                 </div>
             </div>
@@ -516,19 +677,19 @@ export const NotesMobile = memo(() => {
         )}>
             {/* iOS-style Editor Header */}
             <div className={cn(
-                "flex items-center justify-between px-4 py-3 border-b backdrop-blur-xl",
+                "flex items-center justify-between px-6 py-4 border-b backdrop-blur-xl",
                 dark
-                    ? "border-white/10 bg-[#1c1c1e]/95"
-                    : "border-black/10 bg-white/95"
+                    ? "border-white/5 bg-[#1c1c1e]/98"
+                    : "border-black/5 bg-white/98"
             )}>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-4">
                     <Button
                         variant="ghost"
                         size="sm"
                         className={cn(
-                            "h-8 w-8 p-0 transition-all duration-200 active:scale-90",
+                            "h-9 w-9 p-0 rounded-xl transition-all duration-200 active:scale-90",
                             dark
-                                ? "text-[#007AFF] hover:bg-[#007AFF]/10"
+                                ? "text-[#007AFF] hover:bg-[#007AFF]/15"
                                 : "text-[#007AFF] hover:bg-[#007AFF]/10"
                         )}
                         onClick={() => setCurrentView("list")}
@@ -582,31 +743,56 @@ export const NotesMobile = memo(() => {
             {/* Note Title Bar */}
             {selectedNote && (
                 <div className={cn(
-                    "px-4 py-3 border-b",
-                    dark ? "border-white/10 bg-[#1c1c1e]" : "border-black/10 bg-white"
+                    "px-6 py-4 border-b",
+                    dark ? "border-white/5 bg-[#1c1c1e]" : "border-black/5 bg-white"
                 )}>
                     <h2 className={cn(
-                        "text-lg font-semibold truncate",
-                        dark ? "text-white" : "text-black"
+                        "text-xl font-bold tracking-tight truncate",
+                        dark ? "text-white" : "text-[#1d1d1f]"
                     )}>
                         {selectedNote.name}
                     </h2>
+                    <p className={cn(
+                        "text-sm mt-1 font-medium",
+                        dark ? "text-[#8e8e93]" : "text-[#6d6d70]"
+                    )}>
+                        {selectedNote.lastModified
+                            ? `Last edited ${new Date(selectedNote.lastModified).toLocaleDateString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: 'numeric',
+                                minute: '2-digit'
+                            })}`
+                            : "Just created"
+                        }
+                    </p>
                 </div>
             )}
 
             {/* Editor */}
             <div className="flex-1 relative">
                 {selectedNote ? (
-                    <TiptapEditor
-                        value={content}
-                        onChange={onValueChange}
-                        placeholder="Start writing your note..."
-                        height={windowSize.height - 140}
-                        className="h-full"
-                        editable={true}
-                        showToolbar={true}
-                        attachmentUrls={attachmentUrls}
-                    />
+                    <div className="relative h-full">
+                        {loadingNoteId === selectedNote.uuid && (
+                            <div
+                                className={cn(
+                                    "absolute inset-0 z-10 flex items-center justify-center backdrop-blur-sm",
+                                    dark ? "bg-black/60" : "bg-white/80"
+                                )}
+                            >
+                                <Loader2 className="animate-spin" />
+                            </div>
+                        )}
+                        <TiptapEditor
+                            value={content}
+                            onChange={onValueChange}
+                            placeholder="Start writing your note..."
+                            height={windowSize.height - 140}
+                            className="h-full"
+                            editable={loadingNoteId !== selectedNote.uuid}
+                            showToolbar={true}
+                        />
+                    </div>
                 ) : (
                     <div className="flex h-full items-center justify-center text-muted-foreground">
                         Select a note to begin editing
@@ -681,9 +867,9 @@ export const NotesMobile = memo(() => {
                                 ) : (
                                     <div className="px-4 py-2">
                                         {attachments.map((item: NoteAttachment) => {
-                                            const key = getAttachmentKey(item)
-                                            const preview = attachmentUrls[key]
-                                            const isImage = item.mime?.startsWith("image/")
+                                            const preview = attachmentPreviews[item.uuid]
+                                            const downloading = Boolean(downloadingAttachments[item.uuid])
+                                            const icon = fileNameToSVGIcon(item.name)
 
                                             return (
                                                 <div
@@ -695,21 +881,25 @@ export const NotesMobile = memo(() => {
                                                             : "border-[#d1d1d6] bg-white shadow-sm"
                                                     )}
                                                 >
-                                                    {isImage && preview ? (
+                                                    {preview ? (
                                                         <img
-                                                            src={preview.url}
+                                                            src={preview}
                                                             alt={item.name}
                                                             className="w-full h-40 object-cover"
                                                         />
                                                     ) : (
                                                         <div className={cn(
-                                                            "flex items-center justify-center h-24",
+                                                            "flex flex-col items-center justify-center h-24 gap-2",
                                                             dark ? "bg-[#2c2c2e]" : "bg-[#f2f2f7]"
                                                         )}>
-                                                            {isImage ?
-                                                                <ImageIcon size={32} className="text-[#8e8e93]" /> :
-                                                                <FileText size={32} className="text-[#8e8e93]" />
-                                                            }
+                                                            <img
+                                                                src={icon}
+                                                                alt=""
+                                                                className="h-12 w-12 opacity-80"
+                                                            />
+                                                            <span className="text-[10px] uppercase tracking-wider text-[#8e8e93]">
+                                                                {item.mime ?? "File"}
+                                                            </span>
                                                         </div>
                                                     )}
                                                     <div className="p-4">
@@ -725,19 +915,52 @@ export const NotesMobile = memo(() => {
                                                                     {formatBytes(item.size)}
                                                                 </p>
                                                             </div>
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="sm"
-                                                                className={cn(
-                                                                    "h-8 w-8 p-0 ml-3 transition-all duration-200 active:scale-90",
-                                                                    dark
-                                                                        ? "text-[#007AFF] hover:bg-[#007AFF]/10"
-                                                                        : "text-[#007AFF] hover:bg-[#007AFF]/10"
-                                                                )}
-                                                                onClick={() => insertAttachment(item)}
-                                                            >
-                                                                <Link2 size={16} strokeWidth={2.5} />
-                                                            </Button>
+                                                            <div className="flex items-center gap-2">
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    className={cn(
+                                                                        "h-8 w-8 p-0 transition-all duration-200 active:scale-90",
+                                                                        dark
+                                                                            ? "text-[#007AFF] hover:bg-[#007AFF]/10"
+                                                                            : "text-[#007AFF] hover:bg-[#007AFF]/10"
+                                                                    )}
+                                                                    onClick={() => insertAttachment(item)}
+                                                                >
+                                                                    <Link2 size={16} strokeWidth={2.5} />
+                                                                </Button>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    className={cn(
+                                                                        "h-8 w-8 p-0 transition-all duration-200 active:scale-90",
+                                                                        dark
+                                                                            ? "text-[#007AFF] hover:bg-[#007AFF]/10"
+                                                                            : "text-[#007AFF] hover:bg-[#007AFF]/10"
+                                                                    )}
+                                                                    onClick={() => downloadAttachment(item)}
+                                                                    disabled={downloading}
+                                                                >
+                                                                    {downloading ? (
+                                                                        <Loader2 size={16} className="animate-spin" />
+                                                                    ) : (
+                                                                        <Download size={16} />
+                                                                    )}
+                                                                </Button>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    className={cn(
+                                                                        "h-8 w-8 p-0 transition-all duration-200 active:scale-90",
+                                                                        dark
+                                                                            ? "text-[#ff453a] hover:bg-[#ff453a]/10"
+                                                                            : "text-[#ff3b30] hover:bg-[#ff3b30]/10"
+                                                                    )}
+                                                                    onClick={() => onDeleteAttachment(item)}
+                                                                >
+                                                                    <Trash2 size={16} />
+                                                                </Button>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </div>
