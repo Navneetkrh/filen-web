@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react"
+import type { Editor } from "@tiptap/react"
 import { Button } from "@/components/ui/button"
 import { TiptapEditor } from "@/components/tiptapEditor"
 import worker from "@/lib/worker"
@@ -17,9 +18,12 @@ import { useTheme } from "@/providers/themeProvider"
 import { fileNameToSVGIcon } from "@/assets/fileExtensionIcons"
 import { fileNameToThumbnailType } from "@/components/dialogs/previewDialog/utils"
 import { generateThumbnail } from "@/lib/worker/proxy"
+import eventEmitter from "@/lib/eventEmitter"
 
 const NOTE_FILE_NAME = "note.md"
 const NOTES_ROOT_NAME = "Notes"
+const ATTACHMENT_KEY_REGEX = /data-attachment-key="([^"]+)"/g
+const ATTACHMENT_SRC_REGEX = /attachment:([A-Za-z0-9%-]+\/[A-Za-z0-9%-]+)/g
 type NotesQueryData = {
 	root: DriveCloudItem
 	notes: DriveCloudItem[]
@@ -63,6 +67,10 @@ function isNoteAttachment(item: DriveCloudItem): item is NoteAttachment {
 	return item.type === "file"
 }
 
+function getAttachmentKey(item: NoteAttachment): string {
+	return `${item.uuid}/${encodeURIComponent(item.name)}`
+}
+
 function generateNoteName(): string {
 	const now = new Date()
 	const datePart = now.toISOString().slice(0, 10)
@@ -78,6 +86,19 @@ function escapeHtml(value: string): string {
 		.replace(/>/g, "&gt;")
 		.replace(/"/g, "&quot;")
 		.replace(/'/g, "&#039;")
+}
+
+function buildAttachmentSnippet(item: NoteAttachment): string {
+	const attachmentKey = getAttachmentKey(item)
+	const size = formatBytes(item.size)
+	const rawLabel = size ? `${item.name} (${size})` : item.name
+	const sanitizedLabel = escapeHtml(rawLabel)
+	const sanitizedName = escapeHtml(item.name)
+	const sanitizedMime = escapeHtml(item.mime ?? "")
+
+	return `<span data-attachment-key="${attachmentKey}" data-attachment-src="attachment:${attachmentKey}" data-attachment-name="${sanitizedName}" data-attachment-size="${
+		item.size ?? ""
+	}" data-attachment-mime="${sanitizedMime}" data-attachment-label="${sanitizedLabel}">&#128206; ${sanitizedLabel}</span>`
 }
 
 export const NotesSimple = memo(() => {
@@ -102,6 +123,61 @@ export const NotesSimple = memo(() => {
 	const [downloadingAttachments, setDownloadingAttachments] = useState<Record<string, boolean>>({})
 
 	const queryClient = useQueryClient()
+
+	const attachmentMetadata = useMemo(() => {
+		const map: Record<
+			string,
+			{
+				name: string
+				size?: number | null
+				mime?: string | null
+				isImage: boolean
+				url?: string | null
+			}
+		> = {}
+
+		attachments.forEach(item => {
+			const key = getAttachmentKey(item)
+			const thumbnailType = fileNameToThumbnailType(item.name)
+			const isImage = thumbnailType === "image"
+
+			map[key] = {
+				name: item.name,
+				size: item.size ?? null,
+				mime: item.mime ?? null,
+				isImage,
+				url: isImage ? attachmentPreviews[key] ?? null : null
+			}
+		})
+
+		return map
+	}, [attachments, attachmentPreviews])
+
+	const extractContentAttachmentKeys = useCallback(
+		(value: string): Set<string> => {
+			const keys = new Set<string>()
+			let match: RegExpExecArray | null
+
+			ATTACHMENT_KEY_REGEX.lastIndex = 0
+			while ((match = ATTACHMENT_KEY_REGEX.exec(value)) !== null) {
+				const keyMatch = match[1]
+				if (keyMatch) {
+					keys.add(keyMatch)
+				}
+			}
+
+			ATTACHMENT_SRC_REGEX.lastIndex = 0
+			while ((match = ATTACHMENT_SRC_REGEX.exec(value)) !== null) {
+				const keyMatch = match[1]
+				if (keyMatch) {
+					keys.add(keyMatch)
+				}
+			}
+
+			return keys
+		},
+		[]
+	)
 
 	const ensureNotesRoot = useCallback(async () => {
 		return await findOrCreateChildDirectory(baseFolderUUID, NOTES_ROOT_NAME)
@@ -186,65 +262,72 @@ export const NotesSimple = memo(() => {
 		[errorToast]
 	)
 
-	useEffect(() => {
-		const activeUUIDs = new Set(attachments.map(item => item.uuid))
+useEffect(() => {
+	const neededKeys = extractContentAttachmentKeys(content)
+	const activeKeys = new Set(attachments.map(item => getAttachmentKey(item)))
 
-		setAttachmentPreviews(prev => {
-			let changed = false
-			const next = { ...prev }
+	setAttachmentPreviews(prev => {
+		let changed = false
+		const next = { ...prev }
 
-			for (const key of Object.keys(next)) {
-				if (!activeUUIDs.has(key)) {
-					delete next[key]
-					changed = true
-				}
+		for (const key of Object.keys(next)) {
+			if (!activeKeys.has(key)) {
+				delete next[key]
+				changed = true
 			}
+		}
 
-			return changed ? next : prev
-		})
+		return changed ? next : prev
+	})
 
-		attachments.forEach(item => {
-			const key = item.uuid
-			const thumbnailType = fileNameToThumbnailType(item.name)
-			const shouldSkipThumbnail =
-				item.size > THUMBNAIL_MAX_FETCH_SIZE || thumbnailType === "none"
+	attachments.forEach(item => {
+		const key = getAttachmentKey(item)
+		const thumbnailType = fileNameToThumbnailType(item.name)
+		const isImage = thumbnailType === "image"
+		const shouldSkipThumbnail = !isImage || item.size > THUMBNAIL_MAX_FETCH_SIZE
+		const shouldLoadPreviewForContent = neededKeys.has(key)
+		const shouldLoadPreviewForSidebar = true
+		const shouldLoadPreview = !shouldSkipThumbnail && (shouldLoadPreviewForContent || shouldLoadPreviewForSidebar)
 
-			if (shouldSkipThumbnail) {
+		if (!shouldLoadPreview) {
+			if (attachmentPreviews[key] !== undefined) {
 				setAttachmentPreviews(prev => {
-					if (prev[key] === null) {
+					if (prev[key] === undefined) {
 						return prev
 					}
 
-					return { ...prev, [key]: null }
+					const next = { ...prev }
+					delete next[key]
+					return next
 				})
-
-				return
 			}
+			return
+		}
 
-			if (previewFetchInFlightRef.current.has(key)) {
-				return
-			}
+		if (previewFetchInFlightRef.current.has(key) || attachmentPreviews[key]) {
+			return
+		}
 
-			if (attachmentPreviews[key]) {
-				return
-			}
+		previewFetchInFlightRef.current.add(key)
+		setAttachmentPreviews(prev => ({ ...prev, [key]: null }))
 
-			previewFetchInFlightRef.current.add(key)
-			setAttachmentPreviews(prev => ({ ...prev, [key]: null }))
-
-			void generateThumbnail({ item })
-				.then(url => {
-					setAttachmentPreviews(prev => ({ ...prev, [key]: url }))
+		void generateThumbnail({ item })
+			.then(url => {
+				setAttachmentPreviews(prev => ({ ...prev, [key]: url }))
+			})
+			.catch(e => {
+				console.error(e)
+				setAttachmentPreviews(prev => {
+					const next = { ...prev }
+					next[key] = null
+					return next
 				})
-				.catch(e => {
-					console.error(e)
-					setAttachmentPreviews(prev => ({ ...prev, [key]: null }))
-				})
-				.finally(() => {
-					previewFetchInFlightRef.current.delete(key)
-				})
-		})
-	}, [attachments, attachmentPreviews])
+			})
+			.finally(() => {
+				previewFetchInFlightRef.current.delete(key)
+			})
+	})
+}, [attachments, attachmentPreviews, content, extractContentAttachmentKeys])
 
 	const handleSelect = useCallback(
 		(note: DriveCloudItem) => {
@@ -506,6 +589,90 @@ export const NotesSimple = memo(() => {
 		[selectedNote, noteFile, notesQuery, errorToast]
 	)
 
+	const uploadAttachments = useCallback(
+		async (files: File[], options?: { showToast?: boolean }) => {
+			if (!selectedNote || files.length === 0) {
+				return [] as NoteAttachment[]
+			}
+
+			const shouldShowToast = options?.showToast ?? true
+			const toast = shouldShowToast ? loadingToast() : null
+			const uploaded: NoteAttachment[] = []
+
+			try {
+				for (const file of files) {
+					const uploadedItem = (await worker.uploadFile({
+						file,
+						parent: selectedNote.uuid,
+						emitEvents: false
+					})) as NoteAttachment
+
+					uploaded.push(uploadedItem)
+				}
+
+				await loadNote(selectedNote, { skipContent: true })
+			} catch (e) {
+				console.error(e)
+				errorToast((e as Error).message ?? (e as Error).toString())
+			} finally {
+				toast?.dismiss()
+			}
+
+			return uploaded
+		},
+		[selectedNote, loadNote, loadingToast, errorToast]
+	)
+
+	const handleEditorFiles = useCallback(
+		async (files: File[], editorInstance: Editor, dropPosition: number | null = null) => {
+			if (!selectedNote || files.length === 0) {
+				return
+			}
+
+			const uploaded = await uploadAttachments(files, { showToast: true })
+
+			if (uploaded.length === 0) {
+				return
+			}
+
+			const positioningChain = editorInstance.chain().focus()
+
+			if (dropPosition !== null) {
+				positioningChain.setTextSelection(dropPosition)
+			}
+
+			positioningChain.run()
+
+			uploaded.forEach(item => {
+				const snippet = buildAttachmentSnippet(item)
+				editorInstance.chain().focus().insertContent(`${snippet}<p></p>`).run()
+			})
+		},
+		[selectedNote, uploadAttachments]
+	)
+
+	const handleAttachmentChipClick = useCallback(
+		(key: string) => {
+			const [uuid, ...rest] = key.split("/")
+
+			if (!uuid) {
+				return
+			}
+
+			const encodedName = rest.join("/")
+			const attachment =
+				attachments.find(item => item.uuid === uuid && encodeURIComponent(item.name) === encodedName) ??
+				attachments.find(item => item.uuid === uuid)
+
+			if (!attachment) {
+				return
+			}
+
+			eventEmitter.emit("openPreviewModal", { item: attachment })
+		},
+		[attachments]
+	)
+
 	const onValueChange = useCallback(
 		(value: string) => {
 			setContent(value)
@@ -541,23 +708,10 @@ export const NotesSimple = memo(() => {
 				return
 			}
 
-			const toast = loadingToast()
-
-			try {
-				for (const file of Array.from(files)) {
-					await worker.uploadFile({ file, parent: selectedNote.uuid, emitEvents: false })
-				}
-
-				await loadNote(selectedNote, { skipContent: true })
-			} catch (e) {
-				console.error(e)
-				errorToast((e as Error).message ?? (e as Error).toString())
-			} finally {
-				event.target.value = ""
-				toast.dismiss()
-			}
+			await uploadAttachments(Array.from(files), { showToast: true })
+			event.target.value = ""
 		},
-		[selectedNote, loadNote, loadingToast, errorToast]
+		[selectedNote, uploadAttachments]
 	)
 
 	const downloadAttachment = useCallback(
@@ -623,13 +777,7 @@ export const NotesSimple = memo(() => {
 
 	const insertAttachment = useCallback(
 		(item: NoteAttachment) => {
-			const encodedName = encodeURIComponent(item.name)
-			const attachmentKey = `${item.uuid}/${encodedName}`
-			const label = escapeHtml(item.name)
-			const size = formatBytes(item.size)
-			const chipContent = size ? `${label} (${size})` : label
-			const snippet = `<span data-attachment-src="attachment:${attachmentKey}" data-attachment-label="${chipContent}" class="note-attachment-chip">&#128206; ${chipContent}</span>`
-
+			const snippet = buildAttachmentSnippet(item)
 			const currentContent = content || ""
 			const nextValue = currentContent + (currentContent ? "<br><br>" : "") + snippet
 
@@ -782,6 +930,14 @@ export const NotesSimple = memo(() => {
 									className="h-full"
 									editable={loadingNoteId !== selectedNote.uuid}
 									showToolbar={true}
+									attachmentMap={attachmentMetadata}
+									onAttachmentClick={handleAttachmentChipClick}
+									onFilesDropped={(files, editorInstance, dropPosition) => {
+										void handleEditorFiles(files, editorInstance, dropPosition ?? null)
+									}}
+									onFilesPasted={(files, editorInstance) => {
+										void handleEditorFiles(files, editorInstance)
+									}}
 								/>
 							</div>
 						) : (
@@ -830,7 +986,8 @@ export const NotesSimple = memo(() => {
 							) : (
 								<ul className="flex flex-col gap-2 mt-2">
 									{attachments.map((item: NoteAttachment) => {
-										const preview = attachmentPreviews[item.uuid]
+										const key = getAttachmentKey(item)
+										const preview = attachmentPreviews[key]
 										const downloading = Boolean(downloadingAttachments[item.uuid])
 										const icon = fileNameToSVGIcon(item.name)
 
@@ -914,3 +1071,8 @@ export const NotesSimple = memo(() => {
 })
 
 export default NotesSimple
+
+
+
+
+

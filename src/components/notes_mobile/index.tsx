@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react"
+import type { Editor } from "@tiptap/react"
 import { Button } from "@/components/ui/button"
 import { TiptapEditor } from "@/components/tiptapEditor"
 import worker from "@/lib/worker"
@@ -29,6 +30,7 @@ import { fileNameToSVGIcon } from "@/assets/fileExtensionIcons"
 import { fileNameToThumbnailType } from "@/components/dialogs/previewDialog/utils"
 import { generateThumbnail } from "@/lib/worker/proxy"
 import { showConfirmDialog } from "@/components/dialogs/confirm"
+import eventEmitter from "@/lib/eventEmitter"
 
 
 const NOTE_FILE_NAME = "note.md"
@@ -74,6 +76,22 @@ function isNoteAttachment(item: DriveCloudItem): item is NoteAttachment {
     return item.type === "file"
 }
 
+function getAttachmentKey(item: NoteAttachment): string {
+	return `${item.uuid}/${encodeURIComponent(item.name)}`
+}
+
+function buildAttachmentSnippet(item: NoteAttachment): string {
+	const attachmentKey = getAttachmentKey(item)
+	const size = formatBytes(item.size)
+	const rawLabel = size ? `${item.name} (${size})` : item.name
+	const sanitizedLabel = escapeHtml(rawLabel)
+	const sanitizedName = escapeHtml(item.name)
+	const sanitizedMime = escapeHtml(item.mime ?? "")
+
+	return `<span data-attachment-key="${attachmentKey}" data-attachment-src="attachment:${attachmentKey}" data-attachment-name="${sanitizedName}" data-attachment-size="${item.size ?? ""}" data-attachment-mime="${sanitizedMime}" data-attachment-label="${sanitizedLabel}">&#128206; ${sanitizedLabel}</span>`
+}
+
+
 function generateNoteName(): string {
     const now = new Date()
     const datePart = now.toISOString().slice(0, 10)
@@ -116,6 +134,35 @@ export const NotesMobile = memo(() => {
     const [showAttachments, setShowAttachments] = useState<boolean>(false)
 
     const queryClient = useQueryClient()
+    const attachmentMetadata = useMemo(() => {
+        const map: Record<
+            string,
+            {
+                name: string
+                size?: number | null
+                mime?: string | null
+                isImage: boolean
+                url?: string | null
+            }
+        > = {}
+
+        attachments.forEach(item => {
+            const key = getAttachmentKey(item)
+            const thumbnailType = fileNameToThumbnailType(item.name)
+            const isImage = thumbnailType === "image"
+
+            map[key] = {
+                name: item.name,
+                size: item.size ?? null,
+                mime: item.mime ?? null,
+                isImage,
+                url: isImage ? attachmentPreviews[key] ?? null : null
+            }
+        })
+
+        return map
+    }, [attachments, attachmentPreviews])
+
 
     const ensureNotesRoot = useCallback(async () => {
         return await findOrCreateChildDirectory(baseFolderUUID, NOTES_ROOT_NAME)
@@ -435,7 +482,41 @@ export const NotesMobile = memo(() => {
 
 
     // Mobile-specific handlers
-    const onAttachmentInput = useCallback(
+    const uploadAttachments = useCallback(
+		async (files: File[], options?: { showToast?: boolean }) => {
+			if (!selectedNote || files.length === 0) {
+				return [] as NoteAttachment[]
+			}
+
+			const shouldShowToast = options?.showToast ?? true
+			const toast = shouldShowToast ? loadingToast() : null
+			const uploaded: NoteAttachment[] = []
+
+			try {
+				for (const file of files) {
+					const uploadedItem = (await worker.uploadFile({
+						file,
+						parent: selectedNote.uuid,
+						emitEvents: false
+					})) as NoteAttachment
+
+					uploaded.push(uploadedItem)
+				}
+
+				await loadNote(selectedNote, { skipContent: true })
+			} catch (e) {
+				console.error(e)
+				errorToast((e as Error).message ?? (e as Error).toString())
+			} finally {
+				toast?.dismiss()
+			}
+
+			return uploaded
+		},
+		[selectedNote, loadNote, loadingToast, errorToast]
+	)
+
+const onAttachmentInput = useCallback(
         async (event: ChangeEvent<HTMLInputElement>) => {
             if (!selectedNote) {
                 return
@@ -447,30 +528,17 @@ export const NotesMobile = memo(() => {
                 return
             }
 
-            const toast = loadingToast()
-
-            try {
-                for (const file of Array.from(files)) {
-                    await worker.uploadFile({ file, parent: selectedNote.uuid, emitEvents: false })
-                }
-
-                await loadNote(selectedNote, { skipContent: true })
-            } catch (e) {
-                console.error(e)
-                errorToast((e as Error).message ?? (e as Error).toString())
-            } finally {
-                event.target.value = ""
-                toast.dismiss()
-            }
+            await uploadAttachments(Array.from(files), { showToast: true })
+            event.target.value = ""
         },
-        [selectedNote, loadNote, loadingToast, errorToast]
+        [selectedNote, uploadAttachments]
     )
 
-    const downloadAttachment = useCallback(
-        async (item: NoteAttachment) => {
-            setDownloadingAttachments(prev => ({ ...prev, [item.uuid]: true }))
+	const downloadAttachment = useCallback(
+		async (item: NoteAttachment) => {
+			setDownloadingAttachments(prev => ({ ...prev, [item.uuid]: true }))
 
-            try {
+			try {
                 const buffer = (await worker.readFile({ item, emitEvents: false })) as Uint8Array
                 const blob = new Blob([buffer], { type: item.mime ?? "application/octet-stream" })
                 const url = URL.createObjectURL(blob)
@@ -495,9 +563,60 @@ export const NotesMobile = memo(() => {
                     return next
                 })
             }
-        },
-        [errorToast]
-    )
+		},
+		[errorToast]
+	)
+
+	
+	const handleEditorFiles = useCallback(
+		async (files: File[], editorInstance: Editor, dropPosition: number | null = null) => {
+			if (!selectedNote || files.length === 0) {
+				return
+			}
+
+			const uploaded = await uploadAttachments(files, { showToast: true })
+
+			if (uploaded.length === 0) {
+				return
+			}
+
+			const positioningChain = editorInstance.chain().focus()
+
+			if (dropPosition !== null) {
+				positioningChain.setTextSelection(dropPosition)
+			}
+
+			positioningChain.run()
+
+			uploaded.forEach(item => {
+				const snippet = buildAttachmentSnippet(item)
+				editorInstance.chain().focus().insertContent(`${snippet}<p></p>`).run()
+			})
+		},
+		[selectedNote, uploadAttachments]
+	)
+
+	const handleAttachmentChipClick = useCallback(
+		(key: string) => {
+			const [uuid, ...rest] = key.split("/")
+
+			if (!uuid) {
+				return
+			}
+
+			const encodedName = rest.join("/")
+			const attachment =
+				attachments.find(item => item.uuid === uuid && encodeURIComponent(item.name) === encodedName) ??
+				attachments.find(item => item.uuid === uuid)
+
+			if (!attachment) {
+				return
+			}
+
+			eventEmitter.emit("openPreviewModal", { item: attachment })
+		},
+		[attachments]
+	)
 
     const onDeleteAttachment = useCallback(
         async (item: NoteAttachment) => {
@@ -527,14 +646,7 @@ export const NotesMobile = memo(() => {
 
     const insertAttachment = useCallback(
         (item: NoteAttachment) => {
-            const encodedName = encodeURIComponent(item.name)
-            const attachmentKey = `${item.uuid}/${encodedName}`
-
-            const label = escapeHtml(item.name)
-            const size = formatBytes(item.size)
-            const chipContent = size ? `${label} (${size})` : label
-            const snippet = `<span data-attachment-src="attachment:${attachmentKey}" data-attachment-label="${chipContent}" class="note-attachment-chip">&#128206; ${chipContent}</span>`
-
+            const snippet = buildAttachmentSnippet(item)
             const currentContent = content || ""
             const nextValue = currentContent + (currentContent ? "<br><br>" : "") + snippet
 
@@ -791,6 +903,14 @@ export const NotesMobile = memo(() => {
                             className="h-full"
                             editable={loadingNoteId !== selectedNote.uuid}
                             showToolbar={true}
+                            attachmentMap={attachmentMetadata}
+                            onAttachmentClick={handleAttachmentChipClick}
+                            onFilesDropped={(files, editorInstance, dropPosition) => {
+                                void handleEditorFiles(files, editorInstance, dropPosition ?? null)
+                            }}
+                            onFilesPasted={(files, editorInstance) => {
+                                void handleEditorFiles(files, editorInstance)
+                            }}
                         />
                     </div>
                 ) : (
@@ -998,3 +1118,5 @@ export const NotesMobile = memo(() => {
 })
 
 export default NotesMobile
+
+

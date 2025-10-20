@@ -123,13 +123,67 @@
 
 /* Attachment chip styles */
 .tiptap-editor .ProseMirror .note-attachment-chip {
-  @apply inline-flex items-center gap-2 px-2.5 py-1 rounded-full border border-border bg-muted text-xs font-medium text-foreground;
+  @apply inline-flex items-center gap-2 px-2.5 py-1 rounded-full border border-border bg-muted text-xs font-medium text-foreground align-middle whitespace-nowrap;
+  line-height: 1.2;
+}
+
+.tiptap-editor .ProseMirror .note-attachment-chip--preview {
+  @apply pr-3;
+}
+
+.tiptap-editor .ProseMirror .note-attachment-thumb {
+  @apply relative flex items-center justify-center w-8 h-8 overflow-hidden rounded-md border border-border/60 bg-background/60;
+}
+
+.dark .tiptap-editor .ProseMirror .note-attachment-thumb {
+  @apply border-white/20 bg-white/10;
+}
+
+.tiptap-editor .ProseMirror .note-attachment-thumb-image {
+  @apply w-full h-full object-cover;
+}
+
+.tiptap-editor .ProseMirror .note-attachment-chip .note-attachment-icon {
+  @apply inline-flex items-center justify-center w-6 h-6 rounded-full bg-muted-foreground/15 text-muted-foreground text-[0.7rem];
+}
+
+.dark .tiptap-editor .ProseMirror .note-attachment-chip .note-attachment-icon {
+  @apply bg-white/15 text-white;
+}
+
+.tiptap-editor .ProseMirror .note-attachment-chip .note-attachment-text {
+  @apply truncate max-w-[220px];
 }
 
 .dark .tiptap-editor .ProseMirror .note-attachment-chip {
   @apply border-white/10 bg-white/10 text-white;
 }
 
+.tiptap-editor .ProseMirror .note-attachment-chip .note-attachment-text {
+  @apply truncate;
+}
+
+/* legacy helpers kept for backward compatibility */
+.tiptap-editor .ProseMirror .note-attachment-media {
+  @apply inline-flex items-center gap-2 px-2.5 py-1 rounded-full border border-border bg-muted text-xs font-medium text-foreground align-middle whitespace-nowrap;
+  line-height: 1.2;
+}
+
+.tiptap-editor .ProseMirror .note-attachment-media .note-attachment-image {
+  @apply w-8 h-8 rounded-md object-cover;
+}
+
+.tiptap-editor .ProseMirror .note-attachment-media .note-attachment-caption {
+  @apply truncate max-w-[220px];
+}
+
+.dark .tiptap-editor .ProseMirror .note-attachment-media {
+  @apply border-white/10 bg-white/10 text-white;
+}
+
+.dark .tiptap-editor .ProseMirror .note-attachment-media .note-attachment-caption {
+  @apply text-white;
+}
 /* Image styles */
 .tiptap-editor .ProseMirror img {
   @apply max-w-full h-auto rounded-lg my-4;
@@ -223,3 +277,4 @@
     @apply pl-3 text-sm;
   }
 }
+
