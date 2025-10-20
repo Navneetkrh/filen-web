@@ -13,6 +13,7 @@
 		"lint": "cross-env NODE_OPTIONS=--max_old_space_size=16834 eslint . --ext ts,tsx,js,jsx --report-unused-disable-directives --max-warnings 0",
 		"preview": "cross-env NODE_OPTIONS=--max_old_space_size=16834 vite preview",
 		"serve": "cross-env NODE_OPTIONS=--max_old_space_size=16834 serve -s dist/",
+		"deploy": "npm run build && gh-pages -d dist",
 		"i18n:scan": "tsx ./i18nScanner.ts",
 		"install:filen": "npm install @filen/desktop@latest @filen/sdk@latest @filen/sync@latest @filen/network-drive@latest"
 	},
@@ -158,6 +159,7 @@
 		"eslint-plugin-react-refresh": "^0.4.5",
 		"fs-extra": "^11.3.0",
 		"geist": "^1.2.2",
+		"gh-pages": "^6.3.0",
 		"glob": "^10.4.1",
 		"less": "^4.2.1",
 		"memfs": "^4.17.0",
