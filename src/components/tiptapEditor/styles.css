@@ -3,12 +3,24 @@
   @apply relative overflow-hidden;
 }
 
+.tiptap-toolbar-container {
+  @apply shrink-0;
+}
+
+.tiptap-content-container {
+  @apply relative overflow-auto;
+  /* Ensure smooth scrolling on all devices */
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
 .tiptap-editor {
-  @apply h-full overflow-auto;
+  @apply h-full;
 }
 
 .tiptap-editor .ProseMirror {
-  @apply p-4 h-full min-h-full outline-none;
+  @apply p-4 min-h-full outline-none;
+  /* Remove height constraint to allow natural content flow */
 }
 
 .tiptap-editor .ProseMirror:focus {
@@ -214,10 +226,14 @@
     @apply text-base;
   }
 
+  .tiptap-content-container {
+    /* Enhanced touch scrolling for mobile */
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+
   .tiptap-editor .ProseMirror {
     @apply p-3 text-base leading-relaxed;
-    /* Improve touch scrolling */
-    -webkit-overflow-scrolling: touch;
   }
 
   /* Better touch targets for mobile */

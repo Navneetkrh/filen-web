@@ -188,8 +188,12 @@ export const TiptapEditor = memo(({
             )}
             style={{ height: height ? `${height}px` : 'auto' }}
         >
-            {showToolbar && (isMobile ? <MobileToolbar editor={editor} /> : <Toolbar editor={editor} />)}
-            <div className="relative flex-1">
+            {showToolbar && (
+                <div className="tiptap-toolbar-container sticky top-0 z-10 bg-background border-b border-border">
+                    {isMobile ? <MobileToolbar editor={editor} /> : <Toolbar editor={editor} />}
+                </div>
+            )}
+            <div className="tiptap-content-container flex-1 overflow-auto">
                 <EditorContent
                     editor={editor}
                     className={cn(

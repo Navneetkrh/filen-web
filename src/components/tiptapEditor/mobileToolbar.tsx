@@ -128,8 +128,7 @@ export const MobileToolbar = memo(({ editor, className }: MobileToolbarProps) =>
     return (
         <>
             <div className={cn(
-                "flex items-center gap-1 p-2 border-b overflow-x-auto",
-                dark ? "border-white/10 bg-[#1c1c1e]" : "border-black/10 bg-white",
+                "flex items-center gap-1 p-2 overflow-x-auto",
                 className
             )}>
                 {/* Primary buttons - always visible */}
@@ -174,8 +173,8 @@ export const MobileToolbar = memo(({ editor, className }: MobileToolbarProps) =>
             {/* Expanded toolbar */}
             {showMore && (
                 <div className={cn(
-                    "flex items-center justify-between p-2 border-b",
-                    dark ? "border-white/10 bg-[#1c1c1e]" : "border-black/10 bg-white"
+                    "flex items-center justify-between p-2 border-t",
+                    dark ? "border-white/10" : "border-black/10"
                 )}>
                     <div className="flex items-center gap-1 overflow-x-auto">
                         {secondaryButtons.map((button, index) => {

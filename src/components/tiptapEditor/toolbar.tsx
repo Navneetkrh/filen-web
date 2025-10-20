@@ -58,7 +58,7 @@ export const Toolbar = memo(({ editor, className }: ToolbarProps) => {
     }
 
     return (
-        <div className={cn("flex flex-wrap items-center gap-1 p-2 border-b border-border", className)}>
+        <div className={cn("flex flex-wrap items-center gap-1 p-2", className)}>
             <Button
                 variant={editor.isActive('bold') ? 'default' : 'ghost'}
                 size="sm"
