@@ -5,7 +5,7 @@ import { TiptapEditor } from "@/components/tiptapEditor"
 import worker from "@/lib/worker"
 import useSDKConfig from "@/hooks/useSDKConfig"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Loader, Loader2, Notebook, Paperclip, Plus, Trash2, Link2, Download, Check, PenTool } from "lucide-react"
+import { Loader, Loader2, Notebook, Paperclip, Plus, Trash2, Link2, Download, Check, PenTool, Save as SaveIcon } from "lucide-react"
 import { showInputDialog } from "@/components/dialogs/input"
 import useErrorToast from "@/hooks/useErrorToast"
 import useLoadingToast from "@/hooks/useLoadingToast"
@@ -123,6 +123,9 @@ export const NotesSimple = memo(() => {
 	const [downloadingAttachments, setDownloadingAttachments] = useState<Record<string, boolean>>({})
 	const [sketchFile, setSketchFile] = useState<NoteAttachment | null>(null)
 	const [sketchMode, setSketchMode] = useState<boolean>(false)
+	const [sketchSaving, setSketchSaving] = useState<boolean>(false)
+	const [sketchSaved, setSketchSaved] = useState<boolean>(false)
+	const sketchRef = useRef<any>(null)
 
 	const queryClient = useQueryClient()
 
@@ -886,21 +889,41 @@ export const NotesSimple = memo(() => {
 				>
 					<div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
 						<div className="flex items-center gap-3">
-							<div className="flex items-center gap-2">
-								{saving && (
-									<div className="flex items-center gap-2 text-blue-500">
-										<Loader className="animate-spin" size={16} />
-										<span className="text-xs font-medium">Saving...</span>
-									</div>
-								)}
-								{!saving && saved && (
-									<div className="flex items-center gap-2 text-green-500 animate-in fade-in duration-300">
-										<div className="rounded-full bg-green-500/10 p-1">
-											<Check size={14} className="stroke-[3]" />
+								<div className="flex items-center gap-2">
+									<Button
+										variant="ghost"
+										size="sm"
+										className={cn(
+											"h-8 rounded-lg border px-3 text-xs transition-colors",
+											dark ? "border-white/20" : "border-black/10",
+										)}
+										onClick={() => {
+											if (!selectedNote) return
+											if (sketchMode) {
+												sketchRef.current?.save?.()
+											} else {
+												void onManualSave()
+											}
+										}}
+										disabled={!selectedNote}
+										title="Save"
+									>
+										<SaveIcon size={14} />
+									</Button>
+									{(saving || sketchSaving) && (
+										<div className="flex items-center gap-2 text-blue-500">
+											<Loader className="animate-spin" size={16} />
+											<span className="text-xs font-medium">Saving...</span>
 										</div>
-										<span className="text-xs font-medium">Saved</span>
-									</div>
-								)}
+									)}
+									{!saving && !sketchSaving && (saved || sketchSaved) && (
+										<div className="flex items-center gap-2 text-green-500 animate-in fade-in duration-300">
+											<div className="rounded-full bg-green-500/10 p-1">
+												<Check size={14} className="stroke-[3]" />
+											</div>
+											<span className="text-xs font-medium">Saved</span>
+										</div>
+									)}
 							</div>
 							<div>
 								<h1 className="text-lg font-semibold leading-tight">
@@ -912,7 +935,11 @@ export const NotesSimple = memo(() => {
 							<Button
 								variant="ghost"
 								size="sm"
-								className="h-8 rounded-lg border border-white/20 px-3 text-xs"
+								className={cn(
+									"h-8 rounded-lg border px-3 text-xs transition-colors",
+									dark ? "border-white/20" : "border-black/10",
+									sketchMode ? (dark ? "bg-[#007AFF]/20 text-[#007AFF]" : "bg-[#007AFF]/10 text-[#007AFF]") : ""
+								)}
 								onClick={() => setSketchMode(prev => !prev)}
 								disabled={!selectedNote}
 								title="Sketch"
@@ -941,7 +968,7 @@ export const NotesSimple = memo(() => {
 					</div>
 					<div className="flex-1 overflow-hidden">
 						{selectedNote ? (
-							<div className="relative h-full">
+									<div className="relative h-full overflow-hidden">
 								{loadingNoteId === selectedNote.uuid && (
 									<div
 										className={cn(
@@ -952,38 +979,52 @@ export const NotesSimple = memo(() => {
 										<Loader2 className="animate-spin" />
 									</div>
 								)}
-									{sketchMode ? (
-										<ExcalidrawInline
-											parentUUID={selectedNote.uuid}
-											file={sketchFile}
-											height={noteContentHeight}
-											onSaved={(f: any) => {
-												setSketchFile(f)
-												void loadNote(selectedNote, { skipContent: true })
-											}}
-										/>
-									) : (
-										<TiptapEditor
-											value={content}
-											onChange={onValueChange}
-											placeholder="Start writing your beautiful note..."
-											height={noteContentHeight}
-											className="h-full"
-											editable={loadingNoteId !== selectedNote.uuid}
-											showToolbar={true}
-											attachmentMap={attachmentMetadata}
-											onAttachmentClick={handleAttachmentChipClick}
-											onFilesDropped={(files, editorInstance, dropPosition) => {
-												void handleEditorFiles(files, editorInstance, dropPosition ?? null)
-											}}
-											onFilesPasted={(files, editorInstance) => {
-												void handleEditorFiles(files, editorInstance)
-											}}
-											onManualSave={onManualSave}
+								<div
+									className="absolute inset-0 flex transition-transform duration-300 ease-out"
+									style={{ transform: sketchMode ? "translateX(-100%)" : "translateX(0%)" }}
+								>
+									<div className="w-full shrink-0 h-full">
+											<TiptapEditor
+												value={content}
+												onChange={onValueChange}
+												placeholder="Start writing your beautiful note..."
+												height={Math.max(320, noteContentHeight)}
+												className="h-full"
+												editable={loadingNoteId !== selectedNote.uuid}
+												showToolbar={true}
+												attachmentMap={attachmentMetadata}
+												onAttachmentClick={handleAttachmentChipClick}
+												onFilesDropped={(files, editorInstance, dropPosition) => {
+													void handleEditorFiles(files, editorInstance, dropPosition ?? null)
+												}}
+												onFilesPasted={(files, editorInstance) => {
+													void handleEditorFiles(files, editorInstance)
+												}}
+											onManualSave={undefined}
 											saving={saving}
 											saved={saved}
 										/>
-									)}
+									</div>
+									<div className="w-full shrink-0 h-full">
+												<ExcalidrawInline
+													parentUUID={selectedNote.uuid}
+													file={sketchFile}
+													height={noteContentHeight}
+													autoSaveMs={5000}
+													onSaved={(f: any) => {
+														setSketchFile(f)
+														setSketchSaving(false)
+														setSketchSaved(true)
+														setTimeout(() => setSketchSaved(false), 2000)
+														void loadNote(selectedNote, { skipContent: true })
+													}}
+													onSavingChange={(flag: boolean) => {
+														setSketchSaving(flag)
+													}}
+													ref={sketchRef}
+												/>
+									</div>
+								</div>
 							</div>
 						) : (
 							<div className="flex h-full items-center justify-center text-muted-foreground">

@@ -1,8 +1,7 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react"
-import { Button } from "@/components/ui/button"
+import { memo, useCallback, useEffect, useRef, useState, forwardRef, useImperativeHandle } from "react"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/providers/themeProvider"
-import { Loader2, Check } from "lucide-react"
+import { Loader2 } from "lucide-react"
 import worker from "@/lib/worker"
 
 export type ExcalidrawInitialData = {
@@ -14,6 +13,27 @@ export type ExcalidrawInitialData = {
 type NoteAttachment = any
 
 const DEFAULT_NAME = "Sketch"
+
+const toSerializableScene = (scene: ExcalidrawInitialData) => {
+  const collaborators = scene.appState?.collaborators instanceof Map
+    ? Object.fromEntries(scene.appState.collaborators)
+    : (scene.appState?.collaborators ?? {})
+
+  const appState = {
+    ...scene.appState,
+    collaborators
+  }
+
+  return {
+    elements: scene.elements ?? [],
+    appState,
+    files: scene.files ?? {}
+  }
+}
+
+const serializeScene = (scene: ExcalidrawInitialData) => {
+  return JSON.stringify(toSerializableScene(scene))
+}
 
 function normalizeAppState(input: any): any {
   const app = { ...(input ?? {}) }
@@ -49,27 +69,39 @@ const readScene = async (file: NoteAttachment | null): Promise<ExcalidrawInitial
   }
 }
 
-export const ExcalidrawInline = memo(({
-  parentUUID,
-  file,
-  height,
-  className,
-  onSaved,
-}: {
+export interface ExcalidrawInlineHandle { save: () => Promise<void> }
+
+type Props = {
   parentUUID: string
   file: NoteAttachment | null
   height?: number
   className?: string
+  autoSaveMs?: number
   onSaved?: (file: NoteAttachment) => void
-}) => {
+  onSavingChange?: (saving: boolean) => void
+}
+
+export const ExcalidrawInline = memo(forwardRef<ExcalidrawInlineHandle, Props>(({ 
+  parentUUID,
+  file,
+  height,
+  className,
+  autoSaveMs = 5000,
+  onSaved,
+  onSavingChange,
+}, ref) => {
   const { dark } = useTheme()
   const [lib, setLib] = useState<any | null>(null)
   const [loadingLib, setLoadingLib] = useState<boolean>(false)
   const [scene, setScene] = useState<ExcalidrawInitialData | null>(null)
   const [sceneLoading, setSceneLoading] = useState<boolean>(false)
   const apiRef = useRef<any>(null)
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
+  const pendingSceneRef = useRef<ExcalidrawInitialData | null>(null)
+  const pendingHashRef = useRef<string | null>(null)
+  const lastSavedHashRef = useRef<string | null>(null)
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isAutoSavingRef = useRef(false)
+  const saveRef = useRef<() => void | Promise<void>>()
 
   // load excalidraw lib lazily
   useEffect(() => {
@@ -90,6 +122,46 @@ export const ExcalidrawInline = memo(({
     }
   }, [lib])
 
+  const clearAutoSaveTimer = useCallback(() => {
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current)
+      autoSaveTimerRef.current = null
+    }
+  }, [])
+
+  const scheduleAutoSave = useCallback(() => {
+    if (!autoSaveMs || autoSaveMs <= 0) {
+      return
+    }
+    if (!pendingSceneRef.current || !pendingHashRef.current) {
+      return
+    }
+    clearAutoSaveTimer()
+    autoSaveTimerRef.current = setTimeout(() => {
+      autoSaveTimerRef.current = null
+      isAutoSavingRef.current = true
+      const fn = saveRef.current
+      if (fn) {
+        void fn()
+      } else {
+        isAutoSavingRef.current = false
+      }
+    }, autoSaveMs)
+  }, [autoSaveMs, clearAutoSaveTimer])
+
+  const gatherScene = useCallback(() => {
+    if (pendingSceneRef.current) {
+      return pendingSceneRef.current
+    }
+    if (!apiRef.current) {
+      return null
+    }
+    const elements = apiRef.current.getSceneElements?.() ?? []
+    const appState = normalizeAppState(apiRef.current.getAppState?.())
+    const files = apiRef.current.getFiles?.() ?? {}
+    return { elements, appState, files }
+  }, [])
+
   // load scene from file
   useEffect(() => {
     let mounted = true
@@ -98,28 +170,45 @@ export const ExcalidrawInline = memo(({
       try {
         const data = await readScene(file)
         if (mounted) setScene(data)
+        if (data) {
+          lastSavedHashRef.current = serializeScene(data)
+        } else {
+          lastSavedHashRef.current = null
+        }
+        pendingSceneRef.current = null
+        pendingHashRef.current = null
       } finally {
         if (mounted) setSceneLoading(false)
       }
     })()
+    clearAutoSaveTimer()
+    isAutoSavingRef.current = false
     return () => {
       mounted = false
     }
-  }, [file?.uuid])
+  }, [file?.uuid, clearAutoSaveTimer])
 
   const save = useCallback(async () => {
-    if (!lib || !apiRef.current) return
-    setSaving(true)
-    setSaved(false)
+    if (!lib) return
+
+    const pendingBefore = pendingSceneRef.current
+    const sceneToSave = pendingBefore ?? gatherScene()
+    if (!sceneToSave) {
+      onSavingChange?.(false)
+      return
+    }
+
+    const serializable = toSerializableScene(sceneToSave)
+    const hash = JSON.stringify(serializable)
+    if (!pendingBefore && hash === lastSavedHashRef.current) {
+      onSavingChange?.(false)
+      return
+    }
+
+    onSavingChange?.(true)
+
     try {
-      const elements = apiRef.current.getSceneElements?.() ?? []
-      const appState = apiRef.current.getAppState?.() ?? {}
-      const collaborators = appState?.collaborators instanceof Map
-        ? Object.fromEntries(appState.collaborators)
-        : (appState?.collaborators ?? {})
-      const appStateForSave = { ...appState, collaborators }
-      const files = apiRef.current.getFiles?.() ?? {}
-      const json = JSON.stringify({ type: "excalidraw", version: 2, source: "filen-notes", elements, appState: appStateForSave, files })
+      const json = JSON.stringify({ type: "excalidraw", version: 2, source: "filen-notes", ...serializable })
 
       const baseName = (file?.name && file.name.endsWith('.excalidraw')) ? file.name.replace(/\.excalidraw$/i, '') : DEFAULT_NAME
       const jsonFile = new File([json], `${baseName}.excalidraw`, { type: "application/json" })
@@ -129,18 +218,39 @@ export const ExcalidrawInline = memo(({
       }
 
       const uploaded = await worker.uploadFile({ file: jsonFile, parent: parentUUID, emitEvents: false })
-      setSaving(false)
-      setSaved(true)
-      setTimeout(() => setSaved(false), 1500)
+
+      pendingSceneRef.current = null
+      pendingHashRef.current = null
+      lastSavedHashRef.current = hash
+      isAutoSavingRef.current = false
+      clearAutoSaveTimer()
+      onSavingChange?.(false)
       onSaved?.(uploaded as any)
     } catch (e) {
       console.error(e)
-      setSaving(false)
-      setSaved(false)
+      isAutoSavingRef.current = false
+      onSavingChange?.(false)
+      if (pendingSceneRef.current && !autoSaveTimerRef.current) {
+        scheduleAutoSave()
+      }
     }
-  }, [lib, apiRef.current, parentUUID, file])
+  }, [lib, gatherScene, file, parentUUID, onSaved, scheduleAutoSave])
+
+  useEffect(() => {
+    saveRef.current = save
+  }, [save])
+
+  useEffect(() => {
+    return () => {
+      clearAutoSaveTimer()
+    }
+  }, [clearAutoSaveTimer])
 
   const containerStyle = height ? { height: `${height}px` } : undefined
+
+  useImperativeHandle(ref, () => ({
+    save: async () => { await save() }
+  }), [save])
 
   return (
     <div className={cn("w-full", className)} style={containerStyle}>
@@ -151,31 +261,43 @@ export const ExcalidrawInline = memo(({
           </div>
         ) : (
           <>
-            <div className="absolute top-2 right-2 z-10 flex items-center gap-2">
-              {saving ? (
-                <div className="text-xs px-2 py-1 rounded bg-[#007AFF]/10 text-[#007AFF] flex items-center gap-1">
-                  <Loader2 className="animate-spin" size={12} />
-                  Saving
-                </div>
-              ) : saved ? (
-                <div className="text-xs px-2 py-1 rounded bg-[#34C759]/10 text-[#34C759] flex items-center gap-1">
-                  <Check size={12} />
-                  Saved
-                </div>
-              ) : null}
-              <Button className="h-8 px-3 bg-[#007AFF] hover:bg-[#0056CC] text-white" onClick={save}>Save</Button>
-            </div>
             <lib.Excalidraw
               theme={dark ? "dark" : "light"}
               initialData={scene ?? undefined}
               excalidrawAPI={(api: any) => (apiRef.current = api)}
+              onChange={(elements: any[], appState: any, files: Record<string, any>) => {
+                const normalized: ExcalidrawInitialData = {
+                  elements,
+                  appState: normalizeAppState(appState),
+                  files
+                }
+                const hash = serializeScene(normalized)
+
+                if (hash === pendingHashRef.current) {
+                  return
+                }
+
+                if (hash === lastSavedHashRef.current) {
+                  pendingSceneRef.current = null
+                  pendingHashRef.current = null
+                  clearAutoSaveTimer()
+                  return
+                }
+
+                pendingSceneRef.current = normalized
+                pendingHashRef.current = hash
+                clearAutoSaveTimer()
+                if (!isAutoSavingRef.current) {
+                  scheduleAutoSave()
+                }
+              }}
             />
           </>
         )}
       </div>
     </div>
   )
-})
+}))
 
 ExcalidrawInline.displayName = "ExcalidrawInline"
 

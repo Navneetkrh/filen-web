@@ -18,7 +18,8 @@ import {
     X,
     Download,
     Trash2,
-    PenTool
+    PenTool,
+    Save as SaveIcon
 } from "lucide-react"
 import useErrorToast from "@/hooks/useErrorToast"
 import useLoadingToast from "@/hooks/useLoadingToast"
@@ -135,6 +136,9 @@ export const NotesMobile = memo(() => {
     const [currentView, setCurrentView] = useState<"list" | "editor" | "attachments" | "sketch">("list")
     const [showAttachments, setShowAttachments] = useState<boolean>(false)
     const [sketchFile, setSketchFile] = useState<NoteAttachment | null>(null)
+    const [sketchSaving, setSketchSaving] = useState<boolean>(false)
+    const [sketchSaved, setSketchSaved] = useState<boolean>(false)
+    const sketchRef = useRef<any>(null)
 
     const queryClient = useQueryClient()
     const attachmentMetadata = useMemo(() => {
@@ -618,7 +622,7 @@ export const NotesMobile = memo(() => {
     )
 
     const handleAttachmentChipClick = useCallback(
-        (key: string) => {
+        (key: string, _event?: MouseEvent) => {
             const [uuid, ...rest] = key.split("/")
 
             if (!uuid) {
@@ -834,13 +838,13 @@ export const NotesMobile = memo(() => {
                         <ArrowLeft size={18} strokeWidth={2.5} />
                     </Button>
                     <div className="flex items-center gap-2">
-                        {saving && (
+                        {(saving || sketchSaving) && (
                             <div className="flex items-center gap-2 text-[#007AFF]">
                                 <Loader className="animate-spin" size={14} />
                                 <span className="text-xs font-medium">Saving</span>
                             </div>
                         )}
-                        {!saving && saved && (
+                        {!saving && !sketchSaving && (saved || sketchSaved) && (
                             <div className="flex items-center gap-2 text-[#34C759]">
                                 <Check size={14} strokeWidth={2.5} />
                                 <span className="text-xs font-medium">Saved</span>
@@ -857,6 +861,27 @@ export const NotesMobile = memo(() => {
                             dark
                                 ? "text-[#007AFF] hover:bg-[#007AFF]/10"
                                 : "text-[#007AFF] hover:bg-[#007AFF]/10"
+                        )}
+                        onClick={() => {
+                            if (!selectedNote) return
+                            if (currentView === "sketch") {
+                                sketchRef.current?.save?.()
+                            } else {
+                                onManualSave()
+                            }
+                        }}
+                        title="Save"
+                    >
+                        <SaveIcon size={16} strokeWidth={2.5} />
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className={cn(
+                            "h-8 w-8 p-0 transition-all duration-200 active:scale-90",
+                            dark
+                                ? cn("text-[#007AFF] hover:bg-[#007AFF]/10", currentView === "sketch" ? "bg-[#007AFF]/15" : "")
+                                : cn("text-[#007AFF] hover:bg-[#007AFF]/10", currentView === "sketch" ? "bg-[#007AFF]/10" : "")
                         )}
                         onClick={onOpenSketch}
                         disabled={!selectedNote}
@@ -935,23 +960,12 @@ export const NotesMobile = memo(() => {
                                 <Loader2 className="animate-spin" />
                             </div>
                         )}
-                        {currentView === "sketch" ? (
-                            <ExcalidrawInline
-                                parentUUID={selectedNote.uuid}
-                                file={sketchFile}
-                                height={windowSize.height - 140}
-                                onSaved={(f: any) => {
-                                    setSketchFile(f)
-                                    // Refresh list silently
-                                    void loadNote(selectedNote, { skipContent: true })
-                                }}
-                            />
-                        ) : (
+                        <div className={cn("h-full", currentView === "editor" ? "block" : "hidden")}> 
                             <TiptapEditor
                                 value={content}
                                 onChange={onValueChange}
                                 placeholder="Start writing your note..."
-                                height={windowSize.height - 140}
+                                height={Math.max(280, (windowSize.height || 0) - 140)}
                                 className="h-full"
                                 editable={loadingNoteId !== selectedNote.uuid}
                                 showToolbar={true}
@@ -963,11 +977,34 @@ export const NotesMobile = memo(() => {
                                 onFilesPasted={(files, editorInstance) => {
                                     void handleEditorFiles(files, editorInstance)
                                 }}
-                                onManualSave={onManualSave}
+                                onManualSave={undefined}
                                 saving={saving}
                                 saved={saved}
                             />
-                        )}
+                        </div>
+                        <div className={cn("h-full", currentView === "sketch" ? "block" : "hidden")}>
+                            <ExcalidrawInline
+                                parentUUID={selectedNote.uuid}
+                                file={sketchFile}
+                                height={Math.max(280, (windowSize.height || 0) - 140)}
+                                className="h-full"
+                                    autoSaveMs={5000}
+                                    onSaved={(f: any) => {
+                                        setSketchFile(f)
+                                        setSketchSaving(false)
+                                        setSketchSaved(true)
+                                        setTimeout(() => setSketchSaved(false), 2000)
+                                        void loadNote(selectedNote, { skipContent: true })
+                                }}
+                                onSavingChange={(flag: boolean) => {
+                                    setSketchSaving(flag)
+                                    if (!flag) {
+                                        // do not auto-change here; onSaved handler handles saved badge timing
+                                    }
+                                }}
+                                ref={sketchRef}
+                            />
+                        </div>
                     </div>
                 ) : (
                     <div className="flex h-full items-center justify-center text-muted-foreground">
