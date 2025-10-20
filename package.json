@@ -14,6 +14,8 @@
 		"preview": "cross-env NODE_OPTIONS=--max_old_space_size=16834 vite preview",
 		"serve": "cross-env NODE_OPTIONS=--max_old_space_size=16834 serve -s dist/",
 		"deploy": "npm run build && gh-pages -d dist",
+		"build:android": "cross-env CAPACITOR=true npm run build && npx cap sync android",
+		"open:android": "npx cap open android",
 		"i18n:scan": "tsx ./i18nScanner.ts",
 		"install:filen": "npm install @filen/desktop@latest @filen/sdk@latest @filen/sync@latest @filen/network-drive@latest"
 	},

@@ -19,15 +19,11 @@ const pdfjsCMapsDir = normalizePath(path.join(pdfjsDistPath, "cmaps"))
 const pdfjsStandardFontsDir = normalizePath(path.join(path.dirname(require.resolve("pdfjs-dist/package.json")), "standard_fonts"))
 
 export default defineConfig({
-	base: "/",
+	base: process.env.CAPACITOR ? "/" : (process.env.NODE_ENV === "production" ? "/filen-web/" : "/"),
 	server: {
-		host: '0.0.0.0',
-		port: 5173,
 		allowedHosts: true
 	},
 	preview: {
-		host: '0.0.0.0',
-		port: 4173,
 		allowedHosts: true
 	},
 	plugins: [
