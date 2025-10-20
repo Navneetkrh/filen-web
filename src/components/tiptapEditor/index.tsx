@@ -32,7 +32,10 @@ export const TiptapEditor = memo(({
     attachmentMap = {},
     onAttachmentClick,
     onFilesDropped,
-    onFilesPasted
+    onFilesPasted,
+    onManualSave,
+    saving = false,
+    saved = false
 }: {
     value: string
     onChange: (value: string) => void
@@ -45,6 +48,9 @@ export const TiptapEditor = memo(({
     onAttachmentClick?: (attachmentKey: string, event: MouseEvent) => void
     onFilesDropped?: (files: File[], editor: Editor, dropPosition: number | null) => void
     onFilesPasted?: (files: File[], editor: Editor) => void
+    onManualSave?: () => void
+    saving?: boolean
+    saved?: boolean
 }) => {
     const { dark } = useTheme()
     const isMobile = useIsMobile()
@@ -190,7 +196,21 @@ export const TiptapEditor = memo(({
         >
             {showToolbar && (
                 <div className="tiptap-toolbar-container sticky top-0 z-10 bg-background border-b border-border">
-                    {isMobile ? <MobileToolbar editor={editor} /> : <Toolbar editor={editor} />}
+                    {isMobile ? (
+                        <MobileToolbar
+                            editor={editor}
+                            onManualSave={onManualSave}
+                            saving={saving}
+                            saved={saved}
+                        />
+                    ) : (
+                        <Toolbar
+                            editor={editor}
+                            onManualSave={onManualSave}
+                            saving={saving}
+                            saved={saved}
+                        />
+                    )}
                 </div>
             )}
             <div className="tiptap-content-container flex-1 overflow-auto">

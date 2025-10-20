@@ -96,9 +96,8 @@ function buildAttachmentSnippet(item: NoteAttachment): string {
 	const sanitizedName = escapeHtml(item.name)
 	const sanitizedMime = escapeHtml(item.mime ?? "")
 
-	return `<span data-attachment-key="${attachmentKey}" data-attachment-src="attachment:${attachmentKey}" data-attachment-name="${sanitizedName}" data-attachment-size="${
-		item.size ?? ""
-	}" data-attachment-mime="${sanitizedMime}" data-attachment-label="${sanitizedLabel}">&#128206; ${sanitizedLabel}</span>`
+	return `<span data-attachment-key="${attachmentKey}" data-attachment-src="attachment:${attachmentKey}" data-attachment-name="${sanitizedName}" data-attachment-size="${item.size ?? ""
+		}" data-attachment-mime="${sanitizedMime}" data-attachment-label="${sanitizedLabel}">&#128206; ${sanitizedLabel}</span>`
 }
 
 export const NotesSimple = memo(() => {
@@ -262,72 +261,72 @@ export const NotesSimple = memo(() => {
 		[errorToast]
 	)
 
-useEffect(() => {
-	const neededKeys = extractContentAttachmentKeys(content)
-	const activeKeys = new Set(attachments.map(item => getAttachmentKey(item)))
+	useEffect(() => {
+		const neededKeys = extractContentAttachmentKeys(content)
+		const activeKeys = new Set(attachments.map(item => getAttachmentKey(item)))
 
-	setAttachmentPreviews(prev => {
-		let changed = false
-		const next = { ...prev }
+		setAttachmentPreviews(prev => {
+			let changed = false
+			const next = { ...prev }
 
-		for (const key of Object.keys(next)) {
-			if (!activeKeys.has(key)) {
-				delete next[key]
-				changed = true
-			}
-		}
-
-		return changed ? next : prev
-	})
-
-	attachments.forEach(item => {
-		const key = getAttachmentKey(item)
-		const thumbnailType = fileNameToThumbnailType(item.name)
-		const isImage = thumbnailType === "image"
-		const shouldSkipThumbnail = !isImage || item.size > THUMBNAIL_MAX_FETCH_SIZE
-		const shouldLoadPreviewForContent = neededKeys.has(key)
-		const shouldLoadPreviewForSidebar = true
-		const shouldLoadPreview = !shouldSkipThumbnail && (shouldLoadPreviewForContent || shouldLoadPreviewForSidebar)
-
-		if (!shouldLoadPreview) {
-			if (attachmentPreviews[key] !== undefined) {
-				setAttachmentPreviews(prev => {
-					if (prev[key] === undefined) {
-						return prev
-					}
-
-					const next = { ...prev }
+			for (const key of Object.keys(next)) {
+				if (!activeKeys.has(key)) {
 					delete next[key]
-					return next
-				})
+					changed = true
+				}
 			}
-			return
-		}
 
-		if (previewFetchInFlightRef.current.has(key) || attachmentPreviews[key]) {
-			return
-		}
+			return changed ? next : prev
+		})
 
-		previewFetchInFlightRef.current.add(key)
-		setAttachmentPreviews(prev => ({ ...prev, [key]: null }))
+		attachments.forEach(item => {
+			const key = getAttachmentKey(item)
+			const thumbnailType = fileNameToThumbnailType(item.name)
+			const isImage = thumbnailType === "image"
+			const shouldSkipThumbnail = !isImage || item.size > THUMBNAIL_MAX_FETCH_SIZE
+			const shouldLoadPreviewForContent = neededKeys.has(key)
+			const shouldLoadPreviewForSidebar = true
+			const shouldLoadPreview = !shouldSkipThumbnail && (shouldLoadPreviewForContent || shouldLoadPreviewForSidebar)
 
-		void generateThumbnail({ item })
-			.then(url => {
-				setAttachmentPreviews(prev => ({ ...prev, [key]: url }))
-			})
-			.catch(e => {
-				console.error(e)
-				setAttachmentPreviews(prev => {
-					const next = { ...prev }
-					next[key] = null
-					return next
+			if (!shouldLoadPreview) {
+				if (attachmentPreviews[key] !== undefined) {
+					setAttachmentPreviews(prev => {
+						if (prev[key] === undefined) {
+							return prev
+						}
+
+						const next = { ...prev }
+						delete next[key]
+						return next
+					})
+				}
+				return
+			}
+
+			if (previewFetchInFlightRef.current.has(key) || attachmentPreviews[key]) {
+				return
+			}
+
+			previewFetchInFlightRef.current.add(key)
+			setAttachmentPreviews(prev => ({ ...prev, [key]: null }))
+
+			void generateThumbnail({ item })
+				.then(url => {
+					setAttachmentPreviews(prev => ({ ...prev, [key]: url }))
 				})
-			})
-			.finally(() => {
-				previewFetchInFlightRef.current.delete(key)
-			})
-	})
-}, [attachments, attachmentPreviews, content, extractContentAttachmentKeys])
+				.catch(e => {
+					console.error(e)
+					setAttachmentPreviews(prev => {
+						const next = { ...prev }
+						next[key] = null
+						return next
+					})
+				})
+				.finally(() => {
+					previewFetchInFlightRef.current.delete(key)
+				})
+		})
+	}, [attachments, attachmentPreviews, content, extractContentAttachmentKeys])
 
 	const handleSelect = useCallback(
 		(note: DriveCloudItem) => {
@@ -688,13 +687,27 @@ useEffect(() => {
 				clearTimeout(saveTimer.current)
 			}
 
-			// Wait 1.5 seconds after user stops typing before saving
+			// Wait 5 seconds after user stops typing before saving
 			saveTimer.current = setTimeout(() => {
 				void saveContent(value)
-			}, 1500)
+			}, 5000)
 		},
 		[selectedNote, saveContent]
 	)
+
+	const onManualSave = useCallback(() => {
+		if (!selectedNote) {
+			return
+		}
+
+		// Clear any pending auto-save
+		if (saveTimer.current) {
+			clearTimeout(saveTimer.current)
+		}
+
+		// Save immediately
+		void saveContent(content)
+	}, [selectedNote, saveContent, content])
 
 	const onAttachmentInput = useCallback(
 		async (event: ChangeEvent<HTMLInputElement>) => {
@@ -938,6 +951,9 @@ useEffect(() => {
 									onFilesPasted={(files, editorInstance) => {
 										void handleEditorFiles(files, editorInstance)
 									}}
+									onManualSave={onManualSave}
+									saving={saving}
+									saved={saved}
 								/>
 							</div>
 						) : (

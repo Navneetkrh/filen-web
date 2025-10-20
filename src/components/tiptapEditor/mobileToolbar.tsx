@@ -13,7 +13,10 @@ import {
     Link,
     Image,
     MoreHorizontal,
-    X
+    X,
+    Save,
+    Check,
+    Loader2
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/providers/themeProvider"
@@ -21,9 +24,12 @@ import { useTheme } from "@/providers/themeProvider"
 interface MobileToolbarProps {
     editor: Editor | null
     className?: string
+    onManualSave?: () => void
+    saving?: boolean
+    saved?: boolean
 }
 
-export const MobileToolbar = memo(({ editor, className }: MobileToolbarProps) => {
+export const MobileToolbar = memo(({ editor, className, onManualSave, saving = false, saved = false }: MobileToolbarProps) => {
     const { dark } = useTheme()
     const [showMore, setShowMore] = useState(false)
 
@@ -155,6 +161,32 @@ export const MobileToolbar = memo(({ editor, className }: MobileToolbarProps) =>
                     "w-px h-6 mx-1 shrink-0",
                     dark ? "bg-white/10" : "bg-black/10"
                 )} />
+
+                {/* Save button */}
+                {onManualSave && (
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className={cn(
+                            "h-8 px-2 shrink-0 flex items-center gap-1",
+                            saved && "text-green-500"
+                        )}
+                        onClick={onManualSave}
+                        disabled={saving}
+                        title={saved ? "Saved" : saving ? "Saving..." : "Save manually"}
+                    >
+                        {saving ? (
+                            <Loader2 size={14} className="animate-spin" />
+                        ) : saved ? (
+                            <Check size={14} />
+                        ) : (
+                            <Save size={14} />
+                        )}
+                        <span className="text-xs">
+                            {saving ? "..." : saved ? "✓" : "Save"}
+                        </span>
+                    </Button>
+                )}
 
                 {/* More button */}
                 <Button

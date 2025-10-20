@@ -16,16 +16,22 @@ import {
     Heading3,
     Link,
     Image,
-    Table
+    Table,
+    Save,
+    Check,
+    Loader2
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface ToolbarProps {
     editor: Editor | null
     className?: string
+    onManualSave?: () => void
+    saving?: boolean
+    saved?: boolean
 }
 
-export const Toolbar = memo(({ editor, className }: ToolbarProps) => {
+export const Toolbar = memo(({ editor, className, onManualSave, saving = false, saved = false }: ToolbarProps) => {
     if (!editor) {
         return null
     }
@@ -203,6 +209,31 @@ export const Toolbar = memo(({ editor, className }: ToolbarProps) => {
             >
                 <Redo size={16} />
             </Button>
+
+            {onManualSave && (
+                <>
+                    <div className="w-px h-6 bg-border mx-1" />
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={onManualSave}
+                        disabled={saving}
+                        className="h-8 px-3 flex items-center gap-2"
+                        title={saved ? "Saved" : saving ? "Saving..." : "Save manually"}
+                    >
+                        {saving ? (
+                            <Loader2 size={16} className="animate-spin" />
+                        ) : saved ? (
+                            <Check size={16} className="text-green-500" />
+                        ) : (
+                            <Save size={16} />
+                        )}
+                        <span className="text-xs">
+                            {saving ? "Saving..." : saved ? "Saved" : "Save"}
+                        </span>
+                    </Button>
+                </>
+            )}
         </div>
     )
 })
